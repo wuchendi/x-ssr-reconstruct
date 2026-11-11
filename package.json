@@ -35,5 +35,6 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.7",
     "wattpm": "^3.78.0"
-  }
+  },
+  "license": "Apache-2.0"
 }

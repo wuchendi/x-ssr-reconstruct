@@ -147,3 +147,7 @@ scripts/            probe, seo-parity, browser-check, ngroutes, precompress
 - Field metrics and Lighthouse CI.
 
 See ARCHITECTURE.md §12.
+
+## License
+
+[Apache-2.0](./LICENSE)
