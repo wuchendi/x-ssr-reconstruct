@@ -12,6 +12,9 @@
 //   4. og:type
 import { createServer } from 'node:http'
 import { executeGraphQL } from './backend.ts'
+// Same rule, shared: a second hand-rolled copy is where the redirect guard
+// would be forgotten.
+import { cleanPath as cleanUrl } from './url-cleanup.ts'
 
 const ORIGIN = 'https://x.example'
 const AUTH = { guestToken: 'legacy-ssr' }
@@ -34,14 +37,6 @@ ${h.status === 404 ? `<meta content='noindex' name='robots'>` : ''}
 ${h.image ? `<meta content='${ORIGIN}${h.image}' property='og:image'>` : ''}
 <meta content='${h.image ? 'summary_large_image' : 'summary'}' name='twitter:card'>
 </head><body>${h.ld ? jsonLd(h.ld) : ''}<noscript>legacy body</noscript></body></html>`
-}
-
-// rweb SSR rule: links pasted into chats often pick up trailing punctuation.
-const TRAILING_PUNCT = /[.,!?;:)\u3002\u3001\uff0c\uff01\uff1f]+$/
-function cleanUrl(path: string): string | null {
-  const decoded = decodeURIComponent(path)
-  const clean = decoded.replace(TRAILING_PUNCT, '')
-  return clean !== decoded && clean.length > 1 ? clean : null
 }
 
 async function profile(screenName: string): Promise<Head> {
