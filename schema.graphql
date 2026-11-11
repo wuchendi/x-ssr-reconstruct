@@ -1,0 +1,28 @@
+type Query {
+  user(screenName: String!): User
+  post(id: ID!): Post
+  homeTimeline(first: Int!): [Post!]!
+}
+
+type User {
+  id: ID!
+  screenName: String!
+  name: String!
+  bio: String!
+  followers: Int!
+  posts(first: Int!): [Post!]!
+}
+
+type Post {
+  id: ID!
+  text: String!
+  createdAt: String!
+  author: User!
+  media: [Media!]!
+  replies(first: Int!): [Post!]!
+}
+
+type Media {
+  url: String!
+  alt: String!
+}

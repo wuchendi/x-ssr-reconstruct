@@ -1,0 +1,4 @@
+{
+  "$schema": "https://schemas.platformatic.dev/@platformatic/node/3.78.0.json",
+  "node": { "main": "app.ts" }
+}

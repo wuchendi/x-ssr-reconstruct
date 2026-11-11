@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schemas.platformatic.dev/@platformatic/runtime/3.78.0.json",
+  "entrypoint": "web",
+  "applications": [{ "id": "web", "path": "./server" }],
+  "server": { "hostname": "0.0.0.0", "port": "{PORT}" },
+  "workers": 4,
+  "health": {
+    "enabled": true,
+    "interval": 1000,
+    "gracePeriod": 5000,
+    "maxUnhealthyChecks": 10,
+    "maxELU": 0.95,
+    "maxHeapUsed": 0.9
+  },
+  "logger": { "level": "info" }
+}
