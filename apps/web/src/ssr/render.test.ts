@@ -120,6 +120,25 @@ describe('script injection', () => {
   })
 })
 
+describe('GraphQL errors', () => {
+  // The replies field failed and, being non-null, nulled the post: the
+  // section must fail (and the browser retry), not render nothing.
+  it('does not stream a failed operation into the page as if it were data', async () => {
+    const fetchGraphQL: FetchGraphQL = async (id, variables, signal) =>
+      operationName(id) === 'ConversationQuery'
+        ? { data: { post: null }, errors: [{ message: 'replies failed', path: ['post', 'replies'] }] }
+        : mockApi(id, variables, signal)
+    const errors: unknown[] = []
+    const { html } = await renderHtml('/ada/status/1001', { fetchGraphQL, onError: (e) => errors.push(e) })
+    const keys = parse(html)
+      .filter((el) => 'data-rr' in el.attrs)
+      .map((el) => el.attrs['data-rr'])
+    expect(keys.some((k) => k.startsWith('ConversationQuery'))).toBe(false)
+    expect(keys.some((k) => k.startsWith('PostQuery'))).toBe(true)
+    expect(String(errors[0])).toMatch(/ConversationQuery.*replies failed/)
+  })
+})
+
 describe('stopping a render', () => {
   // The conversation never answers on its own; it settles only when aborted.
   function hangingConversation() {

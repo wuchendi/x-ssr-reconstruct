@@ -116,4 +116,16 @@ describe('createReplayFetch', () => {
     const { events } = run(createReplayFetch({ source: src, api, timeoutMs: 20 }))
     await vi.waitFor(() => expect(events).toEqual([{ error: expect.stringMatching(/timed out/i) }]))
   })
+
+  it('fails when the API answers with errors and no root data (an error bubbled to the root)', async () => {
+    const api = vi
+      .fn()
+      .mockResolvedValue({ data: { user: null }, errors: [{ message: 'boom', path: ['user', 'posts'] }] })
+    const src = source()
+    src.end()
+    const { events } = run(createReplayFetch({ source: src, api, timeoutMs: 1000 }))
+    await vi.waitFor(() =>
+      expect(events).toEqual([{ error: expect.stringMatching(/ProfileTimelineQuery failed: boom/) }]),
+    )
+  })
 })

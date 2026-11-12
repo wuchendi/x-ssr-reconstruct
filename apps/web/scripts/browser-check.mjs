@@ -214,6 +214,23 @@ if (process.env.DEBUG_FAILURES === '1') {
     `posts after retry: ${after}`,
   )
   await ctx.close()
+
+  // H3: a 200 with GraphQL errors that nulled the root must also show the
+  // section error, not an empty conversation.
+  const ctx3 = await browser.newContext({
+    serviceWorkers: 'block',
+    extraHTTPHeaders: { 'x-debug-fail': 'ConversationQuery:graphql' },
+  })
+  const page3 = await ctx3.newPage()
+  await page3.goto(`${BASE}/ada/status/1001`, { waitUntil: 'load' })
+  await page3.waitForSelector('.section-error', { timeout: 15000 }).catch(() => {})
+  const shown = await page3.locator('.section-error').count()
+  check(
+    'H3 GraphQL errors that null the root show the section error',
+    shown === 1 && (await page3.locator('article.post').count()) === 1,
+    `section errors ${shown}`,
+  )
+  await ctx3.close()
 }
 
 // D. Slow 4G + slow conversation upstream: the shell hydrates long before the

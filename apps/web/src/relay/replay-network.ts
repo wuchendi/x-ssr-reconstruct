@@ -5,6 +5,7 @@
 import type { GraphQLResponse, RequestParameters, Variables } from 'relay-runtime'
 import { Observable } from 'relay-runtime'
 import { requestKey } from './key.ts'
+import { checkResponse } from './response-policy.ts'
 
 export type ReplaySource = {
   // Remove and return the streamed JSON text for a request key.
@@ -35,8 +36,14 @@ export function createReplayFetch(opts: { source: ReplaySource; api: ApiCall; ti
       let cancel: AbortController | undefined
 
       const deliver = (response: GraphQLResponse) => {
-        sink.next(response)
-        sink.complete()
+        try {
+          sink.next(
+            checkResponse(response, params.name, (op, errors) => console.warn(`[relay] ${op}: partial`, errors)),
+          )
+          sink.complete()
+        } catch (err) {
+          sink.error(err as Error)
+        }
       }
       const replay = () => {
         const text = source.take(key)

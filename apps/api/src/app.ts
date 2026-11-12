@@ -35,10 +35,17 @@ function authOf(req: FastifyRequest) {
   }
 }
 
-function failsOnPurpose(req: FastifyRequest, query: string) {
+// "OpName" -> HTTP 503; "OpName:graphql" -> a 200 whose error bubbled up and
+// nulled the root field (what a failing non-null field produces).
+function debugFailure(req: FastifyRequest, query: string): 'http' | 'graphql' | null {
   const header = req.headers['x-debug-fail']
   const name = /^\s*query\s+(\w+)/.exec(query)?.[1]
-  return typeof header === 'string' && name !== undefined && header.split(',').some((n) => n.trim() === name)
+  if (typeof header !== 'string' || !name) return null
+  for (const entry of header.split(',').map((e) => e.trim())) {
+    if (entry === name) return 'http'
+    if (entry === `${name}:graphql`) return 'graphql'
+  }
+  return null
 }
 
 export async function create(options: ApiOptions) {
@@ -60,7 +67,12 @@ export async function create(options: ApiOptions) {
     const request = parsePersistedRequest(req.body)
     const query = request && persisted.get(request.id)
     if (!request || !query) return reply.code(400).send({ error: 'Unknown or malformed persisted query' })
-    if (options.debugFailures && failsOnPurpose(req, query)) return reply.code(503).send({ error: 'debug failure' })
+    const failure = options.debugFailures ? debugFailure(req, query) : null
+    if (failure === 'http') return reply.code(503).send({ error: 'debug failure' })
+    if (failure === 'graphql') {
+      const root = /\{\s*(\w+)/.exec(query)?.[1] ?? 'data'
+      return { data: { [root]: null }, errors: [{ message: 'debug failure', path: [root] }] }
+    }
     return executeGraphQL({ query, variables: request.variables }, authOf(req))
   })
 

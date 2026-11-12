@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { brotliDecompressSync, createBrotliDecompress, createGunzip, gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { createFlushingCompressor, negotiateEncoding } from './compress.ts'
@@ -47,5 +48,23 @@ describe('createFlushingCompressor', () => {
     z.write('<!DOCTYPE html><body>shell')
     await expect(firstText).resolves.toBe('<!DOCTYPE html><body>shell')
     z.end('</body></html>')
+  })
+})
+
+describe('createFlushingCompressor backpressure', () => {
+  // React pauses on write() === false and resumes on 'drain'; compression
+  // must pass both through.
+  it.each(['br', 'gzip'] as const)('%s: signals a slow reader, then drains once it reads', async (encoding) => {
+    const z = createFlushingCompressor(encoding)
+    let full = false
+    for (let i = 0; i < 64 && !full; i++) {
+      full = !z.write(randomBytes(4096)) // incompressible
+      await new Promise((r) => setImmediate(r))
+    }
+    expect(full).toBe(true)
+    const drained = new Promise((r) => z.once('drain', r))
+    z.resume()
+    await expect(drained).resolves.toBeUndefined()
+    z.destroy()
   })
 })

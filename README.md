@@ -164,7 +164,8 @@ The unit tests cover:
 - the preload cache: cap, expiry, and disposal of query refs;
 - relative time formatting and literal request-path parsing;
 - Relay lifecycle: cancellable replay network, store retention / GC / TTL, the navigation gate;
-- the SSR entry itself: CSP nonces on every executable script, no injection paths, render timeout and client disconnect.
+- the SSR entry itself: CSP nonces on every executable script, no injection paths, render timeout and client disconnect;
+- backpressure from a slow reader through the injector and the compressor; the GraphQL error policy.
 
 The bugs found while building this project each have a regression test.
 
@@ -238,7 +239,7 @@ It exits with 1 on any difference.
 
 ## Browser checks
 
-`apps/web/scripts/browser-check.mjs` runs 25 checks in real Chromium:
+`apps/web/scripts/browser-check.mjs` runs 26 checks in real Chromium:
 
 - hydration without errors;
 - no GraphQL request at load;
@@ -251,7 +252,7 @@ It exits with 1 on any difference.
 - navigating between routes with and without a primary query, including back;
 - scroll restoration on back, and relative timestamps after hydration;
 - user text that looks like markup stays text;
-- with `DEBUG_FAILURES=1`: a failed streamed section shows its own error and recovers on retry.
+- with `DEBUG_FAILURES=1`: a failed streamed section (HTTP failure, or GraphQL errors that null the root) shows its own error and recovers on retry.
 
 It needs Playwright with a matching browser:
 `pnpm --filter @x-ssr/web exec playwright install chromium`, or the

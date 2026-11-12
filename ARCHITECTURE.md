@@ -176,17 +176,31 @@ layout.
   `destination.flush()`. It calls that at the end of every flush cycle:
   `completeWriting(); flushBuffered()` → `destination.flush()`. That covers the
   shell, each completed boundary, and the final `</body></html>`.
-- `ResponseInjector` is a `Transform` that buffers React's bytes, implements
-  `flush()`, and emits at those points:
-  - **First flush (the shell):** shell first, then data. Nothing may precede
-    `<!DOCTYPE html>`.
-  - **Later flushes:** data first, then the boundary, so the response is in the
-    DOM before React reveals and hydrates the boundary that needs it.
+- `ResponseInjector` is a `Transform`. React's bytes pass straight through;
+  only our data scripts wait for a flush point:
+  - **The shell:** data that arrived before the shell goes after it. Nothing
+    may precede `<!DOCTYPE html>`.
+  - **Later cycles:** data that arrived between cycles goes right before the
+    next cycle's first byte, which is before the boundary that renders it. The
+    response is therefore in the DOM before React reveals and hydrates that
+    boundary. Data that arrives during a cycle goes at the cycle's end.
 - **[found]** When the shell _is_ the whole document (no pending boundaries,
   e.g. a 404 profile), the first flush already ends with `</body></html>`.
-  Appending data there put scripts after `</html>`, so data is spliced in
-  before `</body></html>` instead.
-- Escaping: `<` becomes `<` (still valid JSON), and U+2028/2029 are
+  Appending data there put scripts after `</html>`. The injector always holds
+  back the last 14 bytes of a cycle, so at a flush point the data can still
+  go before `</body></html>`.
+- **[found] Backpressure.** The first version buffered React's bytes and
+  pushed them only at flush points. Transform's backpressure check skips any
+  write that produced no output, so React was never told to pause: a reader
+  that stopped reading still had the whole page (1.54 MB in the test)
+  written into memory. Passing React's bytes through restores the native
+  mechanism: `write()` returns `false`, React pauses at the next boundary and
+  resumes on `'drain'`. `ssr/backpressure.test.ts` renders 300 boundaries
+  into a stalled reader and asserts React stops early, then that the full
+  page arrives once the reader catches up. The compression stream already
+  propagated backpressure, because it pushes before acknowledging; a test
+  covers it too.
+- Escaping: `<` becomes `\u003c` (still valid JSON), and U+2028/2029 are
   escaped. The mock data contains `</script><b>` to prove this works.
 
 ### Wire format
@@ -547,6 +561,27 @@ counters, which shows that requests are spread across worker threads.
   `x-debug-fail: ConversationQuery` header makes the API answer 503 for that
   operation, on the server's calls and the browser's. Browser checks H1/H2
   use it.
+
+### GraphQL errors (added after §15's first pass)
+
+- **[found]** Relay ignores field errors when a response has data. A failing
+  non-null field (`replies`) nulls its parent up to the root (`post: null`),
+  and the section rendered as empty, with no sign of failure.
+  `relay/response-policy.ts`, applied in both networks, sets the policy:
+  - errors with no root data left mean the operation failed and throws, which
+    shows the section error with its retry;
+  - errors with some root data are kept as partial success and reported;
+  - `null` without errors stays "not found".
+    On the server, a failed operation is not streamed into the page, so the
+    browser asks the API itself. Browser check H3 uses
+    `x-debug-fail: ConversationQuery:graphql`, which makes the API return 200
+    with exactly that bubbled shape.
+- **[found]** Errors React raised before the shell was flushed were never
+  logged. `onError` only reported after the shell, to avoid logging shell
+  errors twice. But a section whose query fails while the shell is still
+  rendering is a boundary error, not a shell error, and its log was dropped.
+  Now every error except the shell's own (which is rejected and logged by
+  the caller) is reported.
 
 ## 16. Not reconstructed
 

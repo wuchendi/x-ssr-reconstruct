@@ -5,16 +5,22 @@ import { Transform } from 'node:stream'
 //
 // React writes in fixed-size views, so a single write() can end mid-tag. The
 // only safe places to splice our own HTML are the points where React calls
-// destination.flush() (end of each flush cycle: shell, each completed
-// Suspense boundary, and the final </body></html>). We buffer React's bytes
-// and emit them, together with any GraphQL responses that arrived meanwhile,
-// at those points.
+// destination.flush(): the end of each flush cycle (the shell, each completed
+// Suspense boundary, and the final </body></html>).
+//
+// React's own bytes pass straight through as they arrive. That keeps
+// Transform's backpressure intact: when the reader falls behind, write()
+// returns false and React pauses until 'drain', instead of us buffering the
+// whole page for a slow client. Only our data scripts wait for a flush point.
+// The last bytes of a cycle are held back, so that at the final flush the
+// data can still go before </body></html>.
 const DOC_END = Buffer.from('</body></html>')
 
 export class ResponseInjector extends Transform {
-  #react: Buffer[] = []
   #data: string[] = []
+  #tail: Buffer = Buffer.alloc(0)
   #shellSent = false
+  #inCycle = false
   #nonceAttr: string
 
   // nonce: the response's CSP nonce, for the executable __rr.p() script. The
@@ -30,36 +36,45 @@ export class ResponseInjector extends Transform {
     )
   }
 
+  #takeData() {
+    const data = this.#data.join('')
+    this.#data = []
+    return data
+  }
+
   override _transform(chunk: Buffer, _enc: BufferEncoding, cb: TransformCallback) {
-    this.#react.push(chunk)
+    if (!this.#inCycle) {
+      this.#inCycle = true
+      // A new cycle starts right after a flush point: responses that arrived
+      // in between go first, before the boundary that renders them. (Before
+      // the shell nothing may precede <!DOCTYPE html>; those wait for flush.)
+      if (this.#shellSent) {
+        const data = this.#takeData()
+        if (data) this.push(data)
+      }
+    }
+    const bytes = Buffer.concat([this.#tail, chunk])
+    const keep = Math.min(DOC_END.length, bytes.length)
+    if (bytes.length > keep) this.push(bytes.subarray(0, bytes.length - keep))
+    this.#tail = bytes.subarray(bytes.length - keep)
     cb()
   }
 
   // Called by React (react-dom/server: flushBuffered -> destination.flush()).
   flush() {
-    const react = Buffer.concat(this.#react)
-    this.#react = []
-    const data = this.#data.join('')
-    this.#data = []
-    if (!this.#shellSent) {
-      // Nothing may precede <!DOCTYPE html>: responses that arrived before the
-      // shell go right after it -- but still inside <body> when the shell is
-      // the whole document (no pending boundaries).
-      this.#shellSent = true
-      if (data && react.subarray(-DOC_END.length).equals(DOC_END)) {
-        this.push(react.subarray(0, -DOC_END.length))
-        this.push(data)
-        this.push(DOC_END)
-      } else {
-        this.push(react)
-        if (data) this.push(data)
-      }
-    } else {
-      // Data first, then the boundary that renders it, so the browser has the
-      // response before React reveals and hydrates that boundary.
-      if (data) this.push(data)
-      if (react.length) this.push(react)
+    this.#inCycle = false
+    this.#shellSent = true
+    const tail = this.#tail
+    this.#tail = Buffer.alloc(0)
+    const data = this.#takeData()
+    // The document is complete: data still goes inside <body>.
+    if (data && tail.equals(DOC_END)) {
+      this.push(data)
+      this.push(tail)
+      return
     }
+    if (tail.length) this.push(tail)
+    if (data) this.push(data)
   }
 
   override _flush(cb: TransformCallback) {

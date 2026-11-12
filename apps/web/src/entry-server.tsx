@@ -44,10 +44,14 @@ export async function render(input: RenderInput): Promise<RenderResult> {
   const { audience } = input
 
   const injector = new ResponseInjector(input.nonce)
-  const env = createServerEnvironment(input.fetchGraphQL, (key, json) => {
-    // Crawler documents never hydrate: they carry no data for the client.
-    if (audience === 'person') injector.pushResponse(key, json)
-  })
+  const env = createServerEnvironment(
+    input.fetchGraphQL,
+    (key, json) => {
+      // Crawler documents never hydrate: they carry no data for the client.
+      if (audience === 'person') injector.pushResponse(key, json)
+    },
+    (message) => input.onError(new Error(message)),
+  )
 
   // Route loaders start every GraphQL request *before* rendering begins.
   // Preview bots: head data only, timeline/conversation never requested.
@@ -87,7 +91,9 @@ export async function render(input: RenderInput): Promise<RenderResult> {
   )
 
   return new Promise((resolve, reject) => {
-    let failedBeforeShell = true
+    // The shell's own error is rejected (and logged by the caller); every
+    // other error is a boundary React hands to the browser: log it here.
+    let shellError: unknown
     let timer: ReturnType<typeof setTimeout> | undefined
     const settle = () => {
       clearTimeout(timer)
@@ -113,7 +119,6 @@ export async function render(input: RenderInput): Promise<RenderResult> {
       // People: send the shell as soon as it's ready, stream the rest.
       onShellReady() {
         if (audience !== 'person') return
-        failedBeforeShell = false
         stream.pipe(injector)
         resolve({ status, body: injector })
       },
@@ -124,18 +129,21 @@ export async function render(input: RenderInput): Promise<RenderResult> {
         settle()
         releaseAll()
         if (audience === 'person') return
-        failedBeforeShell = false
         const out = new PassThrough()
         stream.pipe(out)
         resolve({ status, body: out })
       },
       onShellError(err) {
+        shellError = err
         settle()
         releaseAll()
         reject(err)
       },
       onError(err) {
-        if (!failedBeforeShell) input.onError(err)
+        // React calls onError before onShellError: decide once both ran.
+        queueMicrotask(() => {
+          if (err !== shellError) input.onError(err)
+        })
       },
     })
     input.signal?.addEventListener('abort', onAbort, { once: true })

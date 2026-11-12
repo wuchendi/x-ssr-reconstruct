@@ -87,6 +87,10 @@ describe('debug failures (test harness, off by default)', () => {
       })
     expect((await call('Q')).statusCode).toBe(503)
     expect((await call('Other, Q2')).statusCode).toBe(200)
+    // ":graphql": a 200 whose error bubbled up and nulled the root field.
+    const bubbled = await call('Q:graphql')
+    expect(bubbled.statusCode).toBe(200)
+    expect(bubbled.json()).toEqual({ data: { user: null }, errors: [{ message: 'debug failure', path: ['user'] }] })
     await debug.close()
   })
 })
