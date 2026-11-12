@@ -74,7 +74,7 @@ layout.
     precompressed, and asset resolution from the Vite manifest;
   - dev SSR loading (see §12);
   - `sendHtml()` with `Server-Timing`;
-  - `parseCookies()` and `withTimeout()`;
+  - `parseCookies()`;
   - `listen()` with graceful shutdown.
 
   The web app's `server/app.ts` adds only what is specific to it: the edge
@@ -95,7 +95,7 @@ layout.
   stalled loop can fire a 1s timer before it handles a response that already
   arrived. X saw 1–9% of renders time out against a ~25 ms upstream. Their fix
   was more workers (lower event-loop utilisation per worker), not longer
-  timeouts. `withTimeout()` in `@x-ssr/server` carries the note.
+  timeouts. The API client (`apps/web/server/api-client.ts`) carries the note.
 - **[found]** When an upstream times out _after_ the shell has been sent,
   React marks that boundary as client-rendered (error #419). The browser then
   fetches the data itself through the replay network's API fallback. The
@@ -456,7 +456,99 @@ counters, which shows that requests are spread across worker threads.
   absolute time. While writing this, the anti-slop rule caught
   `...(sameYear ? {} : { year: 'numeric' })` in the new code.
 
-## 14. Not reconstructed
+## 14. Supervision, the API tier, compression
+
+- **[post] Watt replacing a stuck worker, verified.**
+  `scripts/watt-stall-check.mjs` starts Watt with 4 workers and calls
+  `/__debug/stall`, a route registered only with `DEBUG_STALL_ROUTE=1` that
+  busy-waits like a stuck render. Measured:
+  - before the stall, 8/8 requests succeed;
+  - during it, 9–11 of 12 succeed, and the requests routed to the stuck
+    worker time out ("one stuck render only affects that worker's requests");
+  - about 11 s after the stall starts, Watt logs
+    `The worker N of the application "web" is unhealthy. Replacing it ...`
+    (checks every 1 s, `maxUnhealthyChecks: 10`);
+  - afterwards, 16/16 succeed.
+- **[inferred] The API tier is a service of its own.** `apps/api` serves the
+  guest token, feature flags and persisted GraphQL, and owns the
+  persisted-query check. The web server calls it over HTTP (`API_URL`): SSR
+  sends the fresh guest token as `x-guest-token`, while browsers send the
+  `gt` cookie. As on x.com, the browser calls `/i/api/*` on the site's
+  origin. The edge would route that path to the API; here the web server
+  forwards it, marked as a stand-in. `withTimeout()` went away: the client
+  uses `AbortSignal.timeout`, which also aborts the request.
+- **[inferred] HTML compression without breaking streaming.** A compressor
+  buffers until it has enough input, which would hold back the shell. The
+  body stream writes one chunk per React flush (the injector only emits at
+  flush points), so `@x-ssr/server` flushes br/gzip after every chunk. Brotli
+  runs at quality 4, because the default 11 is too slow for on-the-fly use.
+  Measured on `/ada`:
+  - 32.5 KB became 2.8 KB on the wire (91% smaller);
+  - the shell still decodes at about 206 ms and the timeline at about 646 ms,
+    as without compression;
+  - browser check D1 (shell hydrated before the document finishes) passes
+    under br in Chromium.
+
+## 15. SSR core: lifecycle, recovery, cancellation, security tests
+
+- **[found] Disposing a query didn't cancel it.** `PreloadedQuery.dispose()`
+  releases the retained data and unsubscribes from the network. Neither of
+  our networks returned a cleanup function, so unsubscribing cancelled
+  nothing: the browser's fetch ran on, a waiter stayed registered for the
+  stream, and the server's upstream call kept going.
+  - The browser's fetch function (`relay/replay-network.ts`, unit-tested
+    without a DOM) now removes its waiter and aborts the fetch on
+    unsubscribe. It also times out after 10 s, and treats a non-2xx response
+    as an error instead of handing `{ error }` to Relay as if it were data.
+  - The server network aborts its upstream call the same way.
+- **[found] Navigation race.** An older navigation that resolved after a
+  newer one committed over it and leaked its refs. `createNavigationGate()`
+  lets only the latest commit; a superseded one disposes what it owns.
+- **[inferred] Store lifecycle (`relay/store.ts`).**
+  - Browser: the 10 most recently released queries stay in the release
+    buffer, so back navigation renders without a refetch. Data older than
+    5 minutes is stale, so `store-or-network` refetches it.
+  - Server: one store per request with no buffer. Refs are disposed when the
+    render completes, aborts or times out.
+  - Tests drive real `relay-runtime` and `loadQuery`, and fail against
+    Relay's default store.
+- **[inferred] Failure in one section.** `StreamedSection` wraps each
+  streamed part (timeline, replies) in its own error boundary with a retry,
+  which runs `loadQuery` again with `network-only` and releases the refs the
+  retry created. If a section's query fails on the server, React hands the
+  boundary to the browser; the browser asks the API, and if that fails too,
+  the section, and only the section, shows "Couldn't load … Retry". The
+  hydration's `onRecoverableError` logs that hand-off as a warning, not an
+  error.
+- **[inferred] Stopping a render.**
+  - When the client disconnects, the web server aborts: React stops, the
+    request's refs are disposed, and upstream calls are cancelled. This is
+    counted as `renders.aborted`.
+  - `RENDER_TIMEOUT_MS` (10 s) aborts boundaries that are still pending, so
+    the browser fetches them itself.
+  - Both are covered by tests on the real SSR entry with a conversation that
+    never answers: the stream ends, the post is there, and the upstream call
+    is cancelled.
+- **Security regression tests** (`ssr/render.test.ts`). These render real
+  routes through the real `render()` and parse the HTML:
+  - every executable script carries the nonce: ours, the stream injector's,
+    and React's;
+  - no nonce attributes appear when CSP is off;
+  - no `on*` attributes and no `javascript:` URLs;
+  - JSON data blocks never contain `</script` or `<!--` and still parse;
+  - a reply whose text is `</script><b>escaped?</b>` produces no `<b>`
+    element;
+  - crawler documents carry only escaped JSON-LD, and preview documents
+    carry no scripts.
+- **Mutation checks.** Each new test was run against a deliberately broken
+  implementation and failed: the injector without its nonce, the renderer
+  ignoring `renderTimeoutMs`, and the store with Relay's defaults.
+- **Test harness for failures.** With `DEBUG_FAILURES=1` (CI only), an
+  `x-debug-fail: ConversationQuery` header makes the API answer 503 for that
+  operation, on the server's calls and the browser's. Browser checks H1/H2
+  use it.
+
+## 16. Not reconstructed
 
 - The Rust card-image service (record-and-replay plus pixel-diff harnesses).
   The prototype serves a placeholder.

@@ -1,12 +1,14 @@
 import type { GraphQLResponse } from 'relay-runtime'
-import { Environment, Network, Observable, RecordSource, Store } from 'relay-runtime'
-import { requestKey } from './key.ts'
+import { Environment, Network } from 'relay-runtime'
+import type { ApiCall, ReplaySource } from './replay-network.ts'
+import { createReplayFetch } from './replay-network.ts'
+import { createClientStore } from './store.ts'
 
 // Registry installed by an inline <script> in <head> (see Document). The
 // server streams each response as
 //   <script type="application/json" data-rr="KEY">JSON</script><script>__rr.p()</script>
-// and __rr.p() moves the JSON *text* into this map. Parsing is deferred to
-// replay time.
+// and __rr.p() moves the JSON *text* into this map and calls the key's
+// waiters. Parsing is deferred to replay time.
 type ReplayRegistry = {
   m: Map<string, string>
   w: Map<string, Array<() => void>>
@@ -21,27 +23,46 @@ declare global {
 // Responses nothing has read yet stay available this long after the stream
 // ends, so a tab or dialog opened right after still finds them.
 const HOLD_AFTER_STREAM_END_MS = 30_000
-
-function take(key: string): GraphQLResponse | undefined {
-  const text = window.__rr.m.get(key)
-  if (text === undefined) return undefined
-  window.__rr.m.delete(key)
-  return JSON.parse(text)
-}
+// Browser-side GraphQL calls (after the stream) give up after this.
+const CLIENT_TIMEOUT_MS = 10_000
 
 // Persisted queries: only the operation id is sent, never query text. The
 // operation name is for logs and tooling; the server ignores it.
-async function fetchFromApi(
-  id: string,
-  operationName: string,
-  variables: Record<string, unknown>,
-): Promise<GraphQLResponse> {
+const fetchFromApi: ApiCall = async (id, operationName, variables, signal) => {
   const res = await fetch('/i/api/graphql', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ id, operationName, variables }),
+    signal,
   })
-  return res.json()
+  if (!res.ok) throw new Error(`${operationName} failed: HTTP ${res.status}`)
+  return (await res.json()) as GraphQLResponse
+}
+
+function replaySource(rr: ReplayRegistry): ReplaySource {
+  return {
+    take(key) {
+      const text = rr.m.get(key)
+      rr.m.delete(key)
+      return text
+    },
+    get ended() {
+      return rr.done
+    },
+    wait(key, onChange) {
+      const waiters = rr.w.get(key) ?? []
+      waiters.push(onChange)
+      rr.w.set(key, waiters)
+      return () => {
+        const list = rr.w.get(key)
+        if (list)
+          rr.w.set(
+            key,
+            list.filter((fn) => fn !== onChange),
+          )
+      }
+    },
+  }
 }
 
 export function createClientEnvironment() {
@@ -56,37 +77,8 @@ export function createClientEnvironment() {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onStreamEnd, { once: true })
   else onStreamEnd()
 
-  const network = Network.create((params, variables) =>
-    Observable.create<GraphQLResponse>((sink) => {
-      const key = requestKey(params, variables)
-      const fromNetwork = () => {
-        fetchFromApi(params.id!, params.name, variables).then(
-          (r) => {
-            sink.next(r)
-            sink.complete()
-          },
-          (e) => sink.error(e),
-        )
-      }
-      const tryReplay = () => {
-        const replayed = take(key)
-        if (replayed === undefined) return false
-        sink.next(replayed)
-        sink.complete()
-        return true
-      }
-
-      if (tryReplay()) return
-      if (rr.done) {
-        fromNetwork()
-        return
-      }
-      // The server is still fetching this one; its response is further down
-      // the stream. Wait for it instead of asking the API a second time.
-      const waiters = rr.w.get(key) ?? []
-      waiters.push(() => tryReplay() || fromNetwork())
-      rr.w.set(key, waiters)
-    }),
+  const network = Network.create(
+    createReplayFetch({ source: replaySource(rr), api: fetchFromApi, timeoutMs: CLIENT_TIMEOUT_MS }),
   )
-  return new Environment({ network, store: new Store(new RecordSource()) })
+  return new Environment({ network, store: createClientStore() })
 }

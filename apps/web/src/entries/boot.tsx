@@ -37,5 +37,12 @@ export async function boot(signedIn: boolean) {
       assets={assets}
       initial={{ route, params, refs, Page, href: location.pathname + location.search }}
     />,
+    {
+      // A boundary the server couldn't finish (e.g. its query failed) is
+      // rendered here instead: expected degradation, not a crash.
+      onRecoverableError(error) {
+        console.warn('[ssr] boundary recovered on the client:', error)
+      },
+    },
   )
 }

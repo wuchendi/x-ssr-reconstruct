@@ -46,6 +46,7 @@ apps/
                       relay/, router/, routes/, app/, entries/
     scripts/          probe, browser-check, ngroutes, precompress
     tests/            build-output checks (startup chunk graph)
+  api/                @x-ssr/api: the API tier (guest token, flags, persisted GraphQL) over HTTP
   legacy-ssr/         @x-ssr/legacy-ssr: stand-in for the old rweb SSR / Jetfuel SSR
 packages/
   server/             @x-ssr/server: Fastify assembly, dev (Vite) / production SSR loading, assets, metrics
@@ -68,10 +69,16 @@ Each package's `tsconfig.json` extends a preset from `@x-ssr/tsconfig`
 ```bash
 pnpm install
 pnpm build                                # turbo: Relay codegen, then client + SSR bundles, ngroutes.json, precompressed assets
+PORT=3302 node apps/api/src/main.ts       # the API tier (the web app reads API_URL, default :3302)
 PORT=3300 node apps/web/server/main.ts    # single process
 # or
 PORT=3300 pnpm --filter @x-ssr/web start:watt   # 4 worker threads with health-based replacement (apps/web/watt.json)
+node apps/web/scripts/watt-stall-check.mjs      # blocks one worker; checks that Watt replaces it
 ```
+
+The browser calls `/i/api/*` on the site's own origin, as on x.com. In
+production the edge routes that path to the API tier. Here the web server
+forwards it as a stand-in. SSR calls the API directly.
 
 Open http://localhost:3300/ada, http://localhost:3300/ada/status/1001 or
 http://localhost:3300/nobody (404).
@@ -97,6 +104,7 @@ pnpm dev    # turbo: Relay codegen, then both apps behind nsl
 | App                                    | URL                                |
 | -------------------------------------- | ---------------------------------- |
 | web (`@x-ssr/web`)                     | http://x-ssr.localhost:3355        |
+| API (`@x-ssr/api`)                     | http://x-ssr-api.localhost:3355    |
 | legacy reference (`@x-ssr/legacy-ssr`) | http://x-ssr-legacy.localhost:3355 |
 
 nsl picks a free port for each app and passes it in as `PORT`, with
@@ -154,7 +162,9 @@ The unit tests cover:
 - the nonce-based CSP header;
 - persisted queries: lookup and request validation;
 - the preload cache: cap, expiry, and disposal of query refs;
-- relative time formatting and literal request-path parsing.
+- relative time formatting and literal request-path parsing;
+- Relay lifecycle: cancellable replay network, store retention / GC / TTL, the navigation gate;
+- the SSR entry itself: CSP nonces on every executable script, no injection paths, render timeout and client disconnect.
 
 The bugs found while building this project each have a regression test.
 
@@ -185,6 +195,10 @@ Remaining `biome-ignore` comments say why each exception is intentional.
 - **Persisted queries:** relay-compiler writes `id → query text` at codegen
   and leaves the text out of the client bundle. `/i/api/graphql` accepts only
   `{ id, variables }` and answers 400 to query text or unknown ids.
+- **Compression:** HTML is sent as br or gzip, negotiated from
+  `Accept-Encoding`. The compressor is flushed after every React flush, so
+  streaming survives. The `/ada` page went from 32.5 KB to 2.8 KB on the wire,
+  with the shell still arriving first.
 - **Errors:** page requests that fail before the first byte get an HTML 500
   page; API calls get JSON. A client-side error boundary keeps the document
   (and the top bar) alive.
@@ -224,7 +238,7 @@ It exits with 1 on any difference.
 
 ## Browser checks
 
-`apps/web/scripts/browser-check.mjs` runs 22 checks in real Chromium:
+`apps/web/scripts/browser-check.mjs` runs 25 checks in real Chromium:
 
 - hydration without errors;
 - no GraphQL request at load;
@@ -235,7 +249,9 @@ It exits with 1 on any difference.
 - signed-in Home;
 - no CSP violations (initial load, streamed boundaries, signed-in app);
 - navigating between routes with and without a primary query, including back;
-- scroll restoration on back, and relative timestamps after hydration.
+- scroll restoration on back, and relative timestamps after hydration;
+- user text that looks like markup stays text;
+- with `DEBUG_FAILURES=1`: a failed streamed section shows its own error and recovers on retry.
 
 It needs Playwright with a matching browser:
 `pnpm --filter @x-ssr/web exec playwright install chromium`, or the
@@ -243,18 +259,22 @@ It needs Playwright with a matching browser:
 slow conversation upstream so the streaming check is meaningful:
 
 ```bash
-REPLIES_LATENCY_MS=5000 UPSTREAM_TIMEOUT_MS=10000 PORT=3300 node apps/web/server/main.ts
+REPLIES_LATENCY_MS=5000 PORT=3302 node apps/api/src/main.ts
+UPSTREAM_TIMEOUT_MS=10000 PORT=3300 node apps/web/server/main.ts
 BASE=http://127.0.0.1:3300 pnpm e2e:browser
 ```
 
 ## Knobs
 
-| Variable              | Default                    | Effect                                                    |
-| --------------------- | -------------------------- | --------------------------------------------------------- |
-| `PORT`                | `3000` (`3301` for legacy) | Listen port                                               |
-| `REPLIES_LATENCY_MS`  | `650`                      | Mock latency of the conversation (replies) query          |
-| `UPSTREAM_TIMEOUT_MS` | `1000`                     | Timeout for guest token, flags and GraphQL upstream calls |
-| `LOG_LEVEL`           | `info`                     | Fastify log level                                         |
+| Variable              | Default                                        | Effect                                                                             |
+| --------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `PORT`                | `3000` (`3301` for legacy, `3302` for the API) | Listen port                                                                        |
+| `API_URL`             | `http://127.0.0.1:3302`                        | Where the web server reaches the API tier                                          |
+| `REPLIES_LATENCY_MS`  | `650`                                          | Mock latency of the conversation (replies) query (API and legacy)                  |
+| `UPSTREAM_TIMEOUT_MS` | `1000`                                         | Web server timeout for calls to the API tier                                       |
+| `RENDER_TIMEOUT_MS`   | `10000`                                        | Pending boundaries after this are handed to the browser                            |
+| `DEBUG_FAILURES`      | off                                            | Test harness: `x-debug-fail: OpName` makes the API fail that operation (web + API) |
+| `LOG_LEVEL`           | `info`                                         | Fastify log level                                                                  |
 
 ## Not reconstructed
 
@@ -264,7 +284,7 @@ BASE=http://127.0.0.1:3300 pnpm e2e:browser
 - The real edge: IP verification, feature switch, per-country rollout.
 - Field metrics and Lighthouse CI.
 
-See ARCHITECTURE.md §14.
+See ARCHITECTURE.md §16.
 
 ## License
 

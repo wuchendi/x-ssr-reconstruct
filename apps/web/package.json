@@ -9,10 +9,9 @@
     "test": "vitest run",
     "start": "node server/main.ts",
     "start:watt": "wattpm start",
-    "dev": "NODE_ENV=development nsl run --name x-ssr node --watch-path=server --watch-path=../../packages server/main.ts"
+    "dev": "NODE_ENV=development API_URL=http://x-ssr-api.localhost:3355 nsl run --name x-ssr node --watch-path=server --watch-path=../../packages server/main.ts"
   },
   "dependencies": {
-    "@x-ssr/mock-api": "workspace:*",
     "@x-ssr/server": "workspace:*",
     "@x-ssr/url-cleanup": "workspace:*",
     "react": "catalog:",
@@ -28,8 +27,10 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "@x-ssr/mock-api": "workspace:*",
     "@x-ssr/tsconfig": "workspace:*",
     "babel-plugin-relay": "catalog:",
+    "htmlparser2": "catalog:",
     "playwright": "catalog:",
     "relay-compiler": "catalog:",
     "typescript": "catalog:",

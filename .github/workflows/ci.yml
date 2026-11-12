@@ -24,13 +24,15 @@ jobs:
       - name: Build, typecheck, unit tests
         run: pnpm turbo run build typecheck test
 
-      - name: Start new app and legacy reference server
+      - name: Start the API, the new app and the legacy reference server
         run: |
           # Slow conversation upstream so the streaming hydration check is meaningful.
-          REPLIES_LATENCY_MS=5000 UPSTREAM_TIMEOUT_MS=10000 PORT=3300 LOG_LEVEL=warn node apps/web/server/main.ts &
+          # DEBUG_FAILURES=1: lets the browser checks fail a query on purpose (x-debug-fail).
+          REPLIES_LATENCY_MS=5000 DEBUG_FAILURES=1 PORT=3302 LOG_LEVEL=warn node apps/api/src/main.ts &
+          UPSTREAM_TIMEOUT_MS=10000 DEBUG_FAILURES=1 PORT=3300 LOG_LEVEL=warn node apps/web/server/main.ts &
           PORT=3301 node apps/legacy-ssr/src/server.ts &
-          for port in 3300 3301; do
-            for i in $(seq 1 30); do curl -sf -o /dev/null "http://127.0.0.1:$port/" && break; sleep 1; done
+          for url in http://127.0.0.1:3302/i/api/flags http://127.0.0.1:3300/ http://127.0.0.1:3301/; do
+            for i in $(seq 1 30); do curl -sf -o /dev/null "$url" && break; sleep 1; done
           done
       - name: SEO parity
         run: pnpm parity
@@ -38,4 +40,4 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @x-ssr/web exec playwright install --with-deps chromium
       - name: Browser checks
-        run: BASE=http://127.0.0.1:3300 pnpm e2e:browser
+        run: BASE=http://127.0.0.1:3300 DEBUG_FAILURES=1 pnpm e2e:browser

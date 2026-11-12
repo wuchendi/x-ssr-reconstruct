@@ -1,8 +1,8 @@
-import { Suspense } from 'react'
 import { usePreloadedQuery } from 'react-relay'
 import { PostCard } from '../../components/PostCard.tsx'
 import { SignupBanner } from '../../components/SignupBanner.tsx'
 import { PostSkeletons } from '../../components/Skeleton.tsx'
+import { StreamedSection } from '../../components/StreamedSection.tsx'
 import type { PageProps } from '../../router/types.ts'
 import type { ProfileHeaderQuery as HeaderOp } from './__generated__/ProfileHeaderQuery.graphql.ts'
 import type { ProfileTimelineQuery as TimelineOp } from './__generated__/ProfileTimelineQuery.graphql.ts'
@@ -28,9 +28,9 @@ export default function Profile({ refs }: PageProps) {
         </div>
       </section>
       {/* Streams in later: the shell (header) is sent before this resolves. */}
-      <Suspense fallback={<PostSkeletons />}>
-        <Timeline queryRef={refs.timeline} />
-      </Suspense>
+      <StreamedSection query={ProfileTimelineQuery} queryRef={refs.timeline} what="posts" fallback={<PostSkeletons />}>
+        {(queryRef) => <Timeline queryRef={queryRef} />}
+      </StreamedSection>
       <SignupBanner />
     </>
   )

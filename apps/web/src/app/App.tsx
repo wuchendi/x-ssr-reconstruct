@@ -5,6 +5,7 @@ import type { Environment } from 'relay-runtime'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
 import { IconSprite } from '../components/PostCard.tsx'
 import { loadRoute } from '../router/load.ts'
+import { createNavigationGate } from '../router/navigation.ts'
 import { PreloadCache } from '../router/preload-cache.ts'
 import { matchRoute } from '../router/routes.ts'
 import type { Audience, PageProps, Params, Refs, RouteDef } from '../router/types.ts'
@@ -63,8 +64,10 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
     history.replaceState({ ...history.state, key: scroll.key }, '')
   }, [scroll])
 
+  const gate = useMemo(() => createNavigationGate(), [])
   const go = useCallback(
     (href: string, push: boolean) => {
+      const isLatest = gate.begin()
       const prepared = prepare(href)
       // The navigation now owns the preload: the cache must not dispose it.
       const next = prepared && cache.take(href)
@@ -75,6 +78,12 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
       }
       next
         .then((state) => {
+          // Superseded by a newer navigation while loading: drop it, and
+          // release the queries it owns (no one else will).
+          if (!isLatest()) {
+            for (const ref of Object.values(state.refs)) ref.dispose()
+            return
+          }
           // On popstate the entry has already changed, but scrollY still
           // belongs to the page being left: save it under that page's key.
           scroll.positions.set(scroll.key, window.scrollY)
@@ -91,10 +100,10 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
         // The route's chunk failed to load (e.g. a deploy removed it): fall
         // back to a full page load instead of silently ignoring the click.
         .catch(() => {
-          location.href = href
+          if (isLatest()) location.href = href
         })
     },
-    [cache, prepare, scroll],
+    [cache, gate, prepare, scroll],
   )
 
   // After the target route commits (its content is in the DOM), scroll.

@@ -3,9 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
+import { brotliDecompressSync } from 'node:zlib'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SsrServer } from './index.ts'
-import { createServer, parseCookies, withTimeout } from './index.ts'
+import { createServer, parseCookies } from './index.ts'
 
 // A minimal production build: Vite manifest, one asset, and an SSR entry.
 let root: string
@@ -96,15 +97,25 @@ describe('assembly', () => {
   })
 })
 
+describe('HTML compression', () => {
+  it('compresses with the best accepted encoding and keeps an existing Vary', async () => {
+    const res = await server.app.inject({ url: '/html', headers: { 'accept-encoding': 'gzip, br' } })
+    expect(res.headers['content-encoding']).toBe('br')
+    expect(String(res.headers.vary)).toMatch(/accept-encoding/)
+    expect(brotliDecompressSync(res.rawPayload).toString()).toBe('<p>gone</p>')
+  })
+
+  it('sends identity when the client accepts no supported encoding', async () => {
+    const res = await server.app.inject({ url: '/html', headers: { 'accept-encoding': 'identity' } })
+    expect(res.headers['content-encoding']).toBeUndefined()
+    expect(res.body).toBe('<p>gone</p>')
+  })
+})
+
 describe('utilities', () => {
   it('parses and decodes cookies', () => {
     const req = { headers: { cookie: 'gt=a%20b; auth_token=x=y' } } as Parameters<typeof parseCookies>[0]
     expect(parseCookies(req)).toEqual({ gt: 'a b', auth_token: 'x=y' })
-  })
-
-  it('rejects when the promise outlives the timeout', async () => {
-    await expect(withTimeout(new Promise(() => {}), 10, 'slow')).rejects.toThrow('slow timed out')
-    await expect(withTimeout(Promise.resolve(1), 10, 'fast')).resolves.toBe(1)
   })
 })
 

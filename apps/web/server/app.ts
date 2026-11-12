@@ -2,17 +2,21 @@
 // does the generic assembly (Fastify, security headers, metrics, static
 // assets, dev/production SSR loading). Exported as create() so Platformatic
 // Watt can run it on several worker threads; server/main.ts runs it standalone.
-import { executeGraphQL, fetchFeatureFlags, fetchGuestToken } from '@x-ssr/mock-api'
 import type { FastifyReply, FastifyRequest } from '@x-ssr/server'
-import { createServer, parseCookies, withTimeout } from '@x-ssr/server'
+import { createServer, parseCookies } from '@x-ssr/server'
 import { cleanPath } from '@x-ssr/url-cleanup'
-import type { GraphQLResponse } from 'relay-runtime'
-import { loadPersistedQueries, parsePersistedRequest } from './persisted-queries.ts'
+import { createApiClient } from './api-client.ts'
 
 type EntryServer = typeof import('../src/entry-server.tsx')
 type Audience = 'person' | 'crawler' | 'preview'
 
 const UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS ?? 1000)
+// The API tier (apps/api).
+const API_URL = process.env.API_URL ?? 'http://127.0.0.1:3302'
+// Test harness: forward x-debug-fail to the API (see apps/api). Off by default.
+const DEBUG_FAILURES = process.env.DEBUG_FAILURES === '1'
+// Boundaries still pending after this are handed to the browser.
+const RENDER_TIMEOUT_MS = Number(process.env.RENDER_TIMEOUT_MS ?? 10_000)
 
 const ERROR_PAGE = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Something went wrong / X-ish</title>
 <meta name="robots" content="noindex"></head><body><h1>Something went wrong</h1><p>Try again in a moment.</p></body></html>`
@@ -35,18 +39,7 @@ export async function create() {
     devCss: ['src/styles.css'],
   })
   const { app } = server
-  const persisted = loadPersistedQueries(new URL('../src/__generated__/persisted-queries.json', import.meta.url), {
-    reload: server.dev,
-  })
-  const runPersisted = (
-    id: string,
-    variables: Record<string, unknown>,
-    auth: { guestToken?: string; userToken?: string },
-  ) => {
-    const query = persisted.get(id)
-    if (!query) return null
-    return executeGraphQL({ query, variables }, auth)
-  }
+  const api = createApiClient(API_URL, UPSTREAM_TIMEOUT_MS)
 
   // Errors before the first byte (upstream timeouts, shell render errors):
   // pages get a plain HTML error page, API calls keep JSON. Errors after the
@@ -60,18 +53,46 @@ export async function create() {
     return reply.code(status).type('text/html; charset=utf-8').send(ERROR_PAGE)
   })
 
+  // Test hook for scripts/watt-stall-check.mjs: blocks this worker's event
+  // loop like a stuck render, so Watt's health checks can be seen replacing
+  // it. Only registered when DEBUG_STALL_ROUTE=1.
+  if (process.env.DEBUG_STALL_ROUTE === '1') {
+    app.get('/__debug/stall', (req) => {
+      const ms = Number((req.query as { ms?: string }).ms ?? 60_000)
+      const end = Date.now() + ms
+      while (Date.now() < end) {
+        // Busy-wait: nothing else can run on this thread.
+      }
+      return { stalledMs: ms }
+    })
+  }
+
   // Placeholder for media + the Rust card-image service.
   const placeholder = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="100%" height="100%" fill="#16181c"/></svg>`
   app.get('/media/:file', (_req, reply) => reply.type('image/svg+xml').send(placeholder))
 
-  // The browser's own GraphQL endpoint, used after the stream has ended.
-  // Only persisted operations: { id, variables }. Query text is refused.
-  app.post('/i/api/graphql', async (req, reply) => {
-    const c = parseCookies(req)
-    const request = parsePersistedRequest(req.body)
-    const result = request && runPersisted(request.id, request.variables, { guestToken: c.gt, userToken: c.auth_token })
-    if (!result) return reply.code(400).send({ error: 'Unknown or malformed persisted query' })
-    return result
+  // Stand-in for the edge's path routing: /i/api/* on the site's origin
+  // belongs to the API tier. In production the edge sends it there directly.
+  app.route({
+    method: ['GET', 'POST'],
+    url: '/i/api/*',
+    handler: async (req, reply) => {
+      const headers: Record<string, string> = {}
+      for (const name of DEBUG_FAILURES ? ['content-type', 'cookie', 'x-debug-fail'] : ['content-type', 'cookie']) {
+        const value = req.headers[name]
+        if (typeof value === 'string') headers[name] = value
+      }
+      const res = await fetch(new URL(req.url, API_URL), {
+        method: req.method,
+        headers,
+        body: req.method === 'GET' ? undefined : JSON.stringify(req.body),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      })
+      reply.code(res.status)
+      const type = res.headers.get('content-type')
+      if (type) reply.type(type)
+      return reply.send(Buffer.from(await res.arrayBuffer()))
+    },
   })
 
   app.get('/*', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -80,19 +101,24 @@ export async function create() {
     if (clean) return reply.redirect(query ? `${clean}?${query}` : clean, 301)
 
     const t0 = performance.now()
+    // The client went away before the response finished: stop rendering and
+    // cancel upstream calls instead of finishing work nobody will read.
+    const disconnected = new AbortController()
+    reply.raw.on('close', () => {
+      if (reply.raw.writableFinished) return
+      server.count('renders.aborted')
+      disconnected.abort(new Error('client disconnected'))
+    })
     const audience = audienceOf(req)
     const c = parseCookies(req)
     const signedIn = Boolean(c.auth_token)
+    const debugFail = DEBUG_FAILURES ? req.headers['x-debug-fail'] : undefined
 
     // Logged out: guest token and feature flags in parallel. The flags
     // request doesn't use the token, so it must not wait for it.
     const [guestToken, flags] = await Promise.all([
-      signedIn ? Promise.resolve(undefined) : withTimeout(fetchGuestToken(), UPSTREAM_TIMEOUT_MS, 'guest token'),
-      withTimeout(
-        fetchFeatureFlags({ country: String(req.headers['x-edge-country'] ?? 'US') }),
-        UPSTREAM_TIMEOUT_MS,
-        'flags',
-      ),
+      signedIn ? Promise.resolve(undefined) : api.guestToken(disconnected.signal),
+      api.flags(String(req.headers['x-edge-country'] ?? 'US'), disconnected.signal),
     ])
     const t1 = performance.now()
 
@@ -102,16 +128,19 @@ export async function create() {
       audience,
       signedIn,
       flags,
-      fetchGraphQL: (id, variables) => {
-        const response = runPersisted(id, variables, { guestToken, userToken: c.auth_token })
-        // The server only runs its own bundle's operations: a miss means stale codegen.
-        if (!response) throw new Error(`persisted query not found: ${id}`)
-        return withTimeout(response, UPSTREAM_TIMEOUT_MS, 'graphql') as Promise<GraphQLResponse>
-      },
+      fetchGraphQL: (id, variables, signal) =>
+        api.graphql(
+          id,
+          variables,
+          { guestToken, userToken: c.auth_token, debugFail: typeof debugFail === 'string' ? debugFail : undefined },
+          signal,
+        ),
       resolveAssets: (routeId, signedIn) =>
         server.assets(signedIn ? 'signed-in' : 'logged-out', [`src/routes/${routeId}/page.tsx`]),
       onError: (err) => req.log.error({ err }, 'render error after shell'),
       nonce: server.nonce(req),
+      signal: disconnected.signal,
+      renderTimeoutMs: RENDER_TIMEOUT_MS,
     })
 
     if (result.status === 'unowned') {

@@ -25,6 +25,11 @@ export type RenderInput = {
   onError: (err: unknown) => void
   // CSP nonce for inline scripts (production); undefined when CSP is off.
   nonce?: string
+  // Aborted when the client goes away: stop rendering, cancel upstream calls.
+  signal?: AbortSignal
+  // Give up on boundaries still pending after this: React hands them to the
+  // browser, which fetches their data itself (degraded, not broken).
+  renderTimeoutMs?: number
 }
 
 export type RenderResult = { status: number; body: Readable } | { status: 'unowned' }
@@ -47,10 +52,18 @@ export async function render(input: RenderInput): Promise<RenderResult> {
   // Route loaders start every GraphQL request *before* rendering begins.
   // Preview bots: head data only, timeline/conversation never requested.
   const refs = route.loader.clientOnly ? {} : loadRoute(env, route, params, { headOnly: audience === 'preview' })
+  // Disposing a server ref releases its data and cancels its upstream call.
+  const releaseAll = () => {
+    for (const ref of Object.values(refs)) ref.dispose()
+  }
 
   // The page chunk and the primary query in parallel. The primary query
   // decides the status code (real 404s) and <head>, so it gates the first byte.
   const [pageMod] = await Promise.all([route.page(), primarySettled(refs.primary)])
+  if (input.signal?.aborted) {
+    releaseAll()
+    throw input.signal.reason
+  }
 
   let primaryData: unknown = null
   if (route.loader.primary) {
@@ -75,6 +88,19 @@ export async function render(input: RenderInput): Promise<RenderResult> {
 
   return new Promise((resolve, reject) => {
     let failedBeforeShell = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const settle = () => {
+      clearTimeout(timer)
+      input.signal?.removeEventListener('abort', onAbort)
+    }
+    // Abort and timeout: pending boundaries are handed to the client (or, if
+    // the client is gone, dropped) and in-flight upstream calls are cancelled.
+    const stop = (reason: unknown) => {
+      settle()
+      stream.abort(reason)
+      releaseAll()
+    }
+    const onAbort = () => stop(input.signal?.reason)
     const stream = renderToPipeableStream(element, {
       // Waiting for onAllReady is not enough: React still outlines a completed
       // boundary (hidden <div> + <template> + $RC script) once the bytes
@@ -94,6 +120,9 @@ export async function render(input: RenderInput): Promise<RenderResult> {
       // Verified crawlers and link-preview bots: wait for every Suspense
       // boundary and send one finished document, resolved in place.
       onAllReady() {
+        // Everything rendered: nothing needs the retained data any more.
+        settle()
+        releaseAll()
         if (audience === 'person') return
         failedBeforeShell = false
         const out = new PassThrough()
@@ -101,11 +130,18 @@ export async function render(input: RenderInput): Promise<RenderResult> {
         resolve({ status, body: out })
       },
       onShellError(err) {
+        settle()
+        releaseAll()
         reject(err)
       },
       onError(err) {
         if (!failedBeforeShell) input.onError(err)
       },
     })
+    input.signal?.addEventListener('abort', onAbort, { once: true })
+    if (input.renderTimeoutMs) {
+      const ms = input.renderTimeoutMs
+      timer = setTimeout(() => stop(new Error(`render timed out after ${ms}ms`)), ms)
+    }
   })
 }

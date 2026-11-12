@@ -1,0 +1,22 @@
+{
+  "name": "@x-ssr/api",
+  "private": true,
+  "type": "module",
+  "description": "The API tier: guest tokens, feature flags and persisted GraphQL over HTTP.",
+  "scripts": {
+    "dev": "NODE_ENV=development nsl run --name x-ssr-api node --watch-path=src --watch-path=../../packages src/main.ts",
+    "start": "node src/main.ts",
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@x-ssr/mock-api": "workspace:*",
+    "fastify": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@x-ssr/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

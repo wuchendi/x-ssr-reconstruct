@@ -4,13 +4,15 @@
 // particular app's routes, audiences or upstreams.
 import { randomBytes } from 'node:crypto'
 import type { Readable } from 'node:stream'
+import { pipeline } from 'node:stream'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import Fastify from 'fastify'
+import { createFlushingCompressor, negotiateEncoding } from './compress.ts'
 import { developmentMode } from './development.ts'
 import { productionMode } from './production.ts'
 
 export type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-export { parseCookies, withTimeout } from './util.ts'
+export { parseCookies } from './util.ts'
 
 export type RouteAssets = { entry: string; preloads: string[]; css: string[] }
 
@@ -28,6 +30,8 @@ export type ServerConfig = {
   // Nonce-based Content-Security-Policy. On by default in production; off in
   // dev, where Vite's HMR relies on inline styles.
   csp?: boolean
+  // br/gzip for HTML responses, flushed per React flush. On by default.
+  compress?: boolean
 }
 
 export type Mode = {
@@ -107,7 +111,13 @@ export async function createServer(config: ServerConfig): Promise<SsrServer> {
             .join(', '),
         )
       }
-      return reply.send(body)
+      const encoding = config.compress === false ? null : negotiateEncoding(reply.request.headers['accept-encoding'])
+      if (!encoding) return reply.send(body)
+      const vary = reply.getHeader('vary')
+      reply.header('vary', vary ? `${vary}, accept-encoding` : 'accept-encoding')
+      reply.header('content-encoding', encoding)
+      // pipeline: an error on either side destroys the other.
+      return reply.send(pipeline(body, createFlushingCompressor(encoding), () => {}))
     },
     fixStacktrace(err) {
       if (err instanceof Error) mode.fixStacktrace?.(err)

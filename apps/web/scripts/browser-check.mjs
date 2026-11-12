@@ -177,6 +177,45 @@ async function open(path, { cookie, slow } = {}) {
   await ctx.close()
 }
 
+// H. A streamed section whose query fails (on the server and in the browser)
+// fails alone, and recovers on retry. Needs DEBUG_FAILURES=1 on the web
+// server and the API (x-debug-fail makes the API answer 503).
+if (process.env.DEBUG_FAILURES === '1') {
+  const ctx = await browser.newContext({
+    serviceWorkers: 'block',
+    extraHTTPHeaders: { 'x-debug-fail': 'ConversationQuery' },
+  })
+  const page = await ctx.newPage()
+  const errors = []
+  page.on('pageerror', (e) => errors.push(String(e)))
+  await page.goto(`${BASE}/ada/status/1001`, { waitUntil: 'load' })
+  await page.waitForSelector('.section-error', { timeout: 15000 }).catch(() => {})
+  const sectionErrors = await page.locator('.section-error').count()
+  const alerts = await page.locator('[role=alert]').count()
+  const posts = await page.locator('article.post').count()
+  check(
+    'H1 failed replies show a section error; post and page stay',
+    sectionErrors === 1 &&
+      alerts === 1 &&
+      posts === 1 &&
+      (await page.locator('.topbar').count()) === 1 &&
+      errors.length === 0,
+    `section errors ${sectionErrors}, alerts ${alerts}, posts ${posts}, page errors ${errors.length}`,
+  )
+  await ctx.setExtraHTTPHeaders({})
+  await page.locator('.section-error button').click()
+  await page
+    .waitForFunction(() => document.querySelectorAll('article.post').length > 1, null, { timeout: 15000 })
+    .catch(() => {})
+  const after = await page.locator('article.post').count()
+  check(
+    'H2 retry loads the replies',
+    after > 1 && (await page.locator('.section-error').count()) === 0,
+    `posts after retry: ${after}`,
+  )
+  await ctx.close()
+}
+
 // D. Slow 4G + slow conversation upstream: the shell hydrates long before the
 // streamed document finishes parsing (async module entry).
 {
@@ -192,6 +231,13 @@ async function open(path, { cookie, slow } = {}) {
   check('D3 no errors', log.errors.length === 0, log.errors.join(' | '))
   const dViolations = await page.evaluate(() => window.__csp)
   check('D4 streamed boundaries run under CSP (no violations)', dViolations.length === 0, dViolations.join(' | '))
+  const injected = await page.locator('article p b').count()
+  const literal = await page.locator('article p', { hasText: '</script><b>escaped?</b>' }).count()
+  check(
+    'D5 markup in user text renders as text, not elements',
+    injected === 0 && literal > 0,
+    `b elements: ${injected}, literal: ${literal}`,
+  )
   await ctx.close()
 }
 
