@@ -1,12 +1,18 @@
-import { useApp } from '../app/context.ts'
+import { useEffect, useState } from 'react'
+import { relativeTime } from './relative-time.ts'
 
-// Crawlers get the absolute time only. Relative "3h" formatting is
-// browser-side output and is left out of crawler documents.
+// The server (and so the hydration pass) renders the absolute time, which is
+// the same everywhere; the browser switches to "3h" after hydrating, so the
+// clock never causes a mismatch. Crawler documents never hydrate and keep the
+// absolute time. The full timestamp stays available as the title.
 export function Timestamp({ iso }: { iso: string }) {
-  const { audience } = useApp()
-  const label = new Date(iso).toISOString().slice(0, 16).replace('T', ' ')
+  const absolute = new Date(iso).toISOString().slice(0, 16).replace('T', ' ')
+  const [label, setLabel] = useState(absolute)
+  useEffect(() => {
+    setLabel(relativeTime(iso, Date.now()))
+  }, [iso])
   return (
-    <time dateTime={iso} data-relative={audience === 'person' ? '' : undefined}>
+    <time dateTime={iso} title={`${absolute} UTC`}>
       {label}
     </time>
   )

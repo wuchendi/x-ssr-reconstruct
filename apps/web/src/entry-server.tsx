@@ -7,7 +7,7 @@ import { stylesheetFirstLoader } from './app/boot-scripts.ts'
 import type { FetchGraphQL } from './relay/server.ts'
 import { createServerEnvironment } from './relay/server.ts'
 import { loadRoute, primarySettled } from './router/load.ts'
-import { matchRoute } from './router/routes.ts'
+import { matchRoute, requestPath } from './router/routes.ts'
 import type { Audience } from './router/types.ts'
 import { ResponseInjector } from './ssr/inject.ts'
 
@@ -30,7 +30,7 @@ export type RenderInput = {
 export type RenderResult = { status: number; body: Readable } | { status: 'unowned' }
 
 export async function render(input: RenderInput): Promise<RenderResult> {
-  const url = new URL(input.url, 'http://local')
+  const url = requestPath(input.url)
   const match = matchRoute(url.pathname, input.signedIn)
   // Not a route of the new app: in production the edge never sends it here,
   // it goes to rweb.

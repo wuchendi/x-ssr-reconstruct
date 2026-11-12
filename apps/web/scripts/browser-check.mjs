@@ -139,6 +139,44 @@ async function open(path, { cookie, slow } = {}) {
   await ctx.close()
 }
 
+// G. Scroll restoration and relative timestamps.
+{
+  const { ctx, page, log } = await open('/ada')
+  const time = page.locator('article.post time').first()
+  await page
+    .waitForFunction(
+      () => /^\d+[smhd]$|^[A-Z][a-z]{2} \d+/.test(document.querySelector('article.post time')?.textContent ?? ''),
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {})
+  const label = await time.textContent()
+  check(
+    'G2 timestamps switch to relative time after hydration',
+    /^\d+[smhd]$|^[A-Z][a-z]{2} \d+/.test(label ?? '') && /UTC$/.test((await time.getAttribute('title')) ?? ''),
+    label,
+  )
+
+  await page.evaluate(() => window.scrollTo(0, 1200))
+  await page.waitForTimeout(100)
+  const post = page.locator('article.post').nth(12)
+  await post.scrollIntoViewIfNeeded()
+  const leftAt = await page.evaluate(() => window.scrollY)
+  await post.click({ position: { x: 300, y: 50 } })
+  await page.waitForFunction(() => /on X-ish/.test(document.title), null, { timeout: 5000 }).catch(() => {})
+  const topAfterPush = await page.evaluate(() => window.scrollY)
+  await page.goBack()
+  await page.waitForFunction(() => document.title.startsWith('Ada'), null, { timeout: 5000 }).catch(() => {})
+  await page.waitForTimeout(200)
+  const restored = await page.evaluate(() => window.scrollY)
+  check(
+    'G1 new page starts at the top; back restores the scroll position',
+    topAfterPush === 0 && Math.abs(restored - leftAt) <= 2 && log.errors.length === 0,
+    `left at ${leftAt}, after push ${topAfterPush}, restored ${restored}`,
+  )
+  await ctx.close()
+}
+
 // D. Slow 4G + slow conversation upstream: the shell hydrates long before the
 // streamed document finishes parsing (async module entry).
 {

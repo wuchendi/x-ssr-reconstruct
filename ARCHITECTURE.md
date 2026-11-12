@@ -435,6 +435,27 @@ counters, which shows that requests are spread across worker threads.
   logger, which parsed the operation name out of `query`. Requests now carry
   `operationName` (the standard field; the server ignores it).
 
+- **[found]** `//evil.com.` rendered the home page with 200. The URL cleanup
+  guard correctly refused to redirect it, but the renderer then parsed the
+  path with `new URL(url, base)`, which reads a leading `//` as
+  protocol-relative and yields `/`. `requestPath()` now takes the path
+  literally, so the request is not a route of the new app (404; the edge
+  would send it to rweb).
+- **[inferred]** Scroll restoration: `history.scrollRestoration = 'manual'`,
+  and each history entry carries a key. The scroll position is saved under
+  the entry being left. On `popstate` the entry has already changed, but
+  `scrollY` still belongs to the old page. After the target route commits,
+  a layout effect scrolls: to 0 after a push, or to the saved position after
+  back/forward. Keys come from `Math.random()`: `crypto.randomUUID()` exists
+  only in secure contexts, and it would have broken navigation over plain
+  http.
+- **[inferred]** Relative timestamps ("3h", "Nov 1"): the server and the
+  hydration pass render the absolute time, which is the same everywhere, and
+  an effect switches to relative time afterwards, so the clock can never
+  cause a hydration mismatch. Crawler documents never hydrate and keep the
+  absolute time. While writing this, the anti-slop rule caught
+  `...(sameYear ? {} : { year: 'numeric' })` in the new code.
+
 ## 14. Not reconstructed
 
 - The Rust card-image service (record-and-replay plus pixel-diff harnesses).

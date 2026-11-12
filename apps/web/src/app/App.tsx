@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { RelayEnvironmentProvider } from 'react-relay'
 import type { Environment } from 'relay-runtime'
 import { ErrorBoundary } from '../components/ErrorBoundary.tsx'
@@ -26,6 +26,8 @@ type Props = {
 }
 
 const PRELOAD_MAX = 20
+// Unique within the tab's history; crypto.randomUUID() needs a secure context.
+const newEntryKey = () => Math.random().toString(36).slice(2)
 const PRELOAD_TTL_MS = 30_000
 
 export function App({ env, audience, signedIn, flags, assets, initial }: Props) {
@@ -52,6 +54,15 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
     [cache, env, signedIn],
   )
 
+  // Scroll restoration: each history entry carries a key; positions are saved
+  // per key when leaving an entry and restored after the target route commits.
+  const scroll = useMemo(() => ({ positions: new Map<string, number>(), key: '', pending: null as number | null }), [])
+  useEffect(() => {
+    history.scrollRestoration = 'manual'
+    scroll.key = history.state?.key ?? newEntryKey()
+    history.replaceState({ ...history.state, key: scroll.key }, '')
+  }, [scroll])
+
   const go = useCallback(
     (href: string, push: boolean) => {
       const prepared = prepare(href)
@@ -64,9 +75,18 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
       }
       next
         .then((state) => {
-          if (push) history.pushState(null, '', href)
+          // On popstate the entry has already changed, but scrollY still
+          // belongs to the page being left: save it under that page's key.
+          scroll.positions.set(scroll.key, window.scrollY)
+          if (push) {
+            scroll.key = newEntryKey()
+            history.pushState({ key: scroll.key }, '', href)
+            scroll.pending = 0
+          } else {
+            scroll.key = history.state?.key ?? newEntryKey()
+            scroll.pending = scroll.positions.get(scroll.key) ?? 0
+          }
           startTransition(() => setCurrent(state))
-          window.scrollTo(0, 0)
         })
         // The route's chunk failed to load (e.g. a deploy removed it): fall
         // back to a full page load instead of silently ignoring the click.
@@ -74,8 +94,17 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
           location.href = href
         })
     },
-    [cache, prepare],
+    [cache, prepare, scroll],
   )
+
+  // After the target route commits (its content is in the DOM), scroll.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per route commit; `current` is the trigger, not an input
+  useLayoutEffect(() => {
+    if (scroll.pending !== null) {
+      window.scrollTo(0, scroll.pending)
+      scroll.pending = null
+    }
+  }, [current, scroll])
 
   // After a route commits, protect its query refs and release the previous
   // route's (unless the new route reuses them).

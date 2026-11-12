@@ -41,6 +41,13 @@ export const routes: RouteDef[] = Object.entries(loaders)
   })
   .sort((a, b) => score(b.pattern) - score(a.pattern))
 
+// Path and query of a request URL, taken literally. new URL(url, base) would
+// read "//evil.com." as protocol-relative and yield "/".
+export function requestPath(url: string): { pathname: string; search: string } {
+  const i = url.indexOf('?')
+  return i === -1 ? { pathname: url, search: '' } : { pathname: url.slice(0, i), search: url.slice(i) }
+}
+
 export function matchRoute(pathname: string, signedIn: boolean) {
   for (const route of routes) {
     if (route.loader.signedInOnly && !signedIn) continue

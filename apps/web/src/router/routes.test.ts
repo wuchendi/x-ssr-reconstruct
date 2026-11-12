@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dirToPattern, matchRoute, patternToRegex, routes } from './routes.ts'
+import { dirToPattern, matchRoute, patternToRegex, requestPath, routes } from './routes.ts'
 
 describe('file-based routes', () => {
   it('derives patterns from the route tree', () => {
@@ -30,5 +30,18 @@ describe('matchRoute', () => {
 
   it('returns null for paths the new app does not own (edge sends them to rweb)', () => {
     expect(matchRoute('/a/b/c/d', false)).toBeNull()
+  })
+})
+
+describe('requestPath', () => {
+  it('splits a request URL into path and query', () => {
+    expect(requestPath('/ada?lang=ja')).toEqual({ pathname: '/ada', search: '?lang=ja' })
+  })
+
+  // Regression: new URL('//evil.com.', base) is protocol-relative, so the
+  // path became "/" and the home page rendered with 200.
+  it('keeps a leading double slash as part of the path', () => {
+    expect(requestPath('//evil.com.')).toEqual({ pathname: '//evil.com.', search: '' })
+    expect(matchRoute(requestPath('//evil.com.').pathname, false)).toBeNull()
   })
 })

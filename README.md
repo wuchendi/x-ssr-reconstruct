@@ -153,7 +153,8 @@ The unit tests cover:
 - the server assembly: manifest-based assets, security headers, metrics, HTML streaming;
 - the nonce-based CSP header;
 - persisted queries: lookup and request validation;
-- the preload cache: cap, expiry, and disposal of query refs.
+- the preload cache: cap, expiry, and disposal of query refs;
+- relative time formatting and literal request-path parsing.
 
 The bugs found while building this project each have a regression test.
 
@@ -223,7 +224,7 @@ It exits with 1 on any difference.
 
 ## Browser checks
 
-`apps/web/scripts/browser-check.mjs` runs 20 checks in real Chromium:
+`apps/web/scripts/browser-check.mjs` runs 22 checks in real Chromium:
 
 - hydration without errors;
 - no GraphQL request at load;
@@ -233,7 +234,8 @@ It exits with 1 on any difference.
 - the shell hydrating before the document finishes under Slow 4G;
 - signed-in Home;
 - no CSP violations (initial load, streamed boundaries, signed-in app);
-- navigating between routes with and without a primary query, including back.
+- navigating between routes with and without a primary query, including back;
+- scroll restoration on back, and relative timestamps after hydration.
 
 It needs Playwright with a matching browser:
 `pnpm --filter @x-ssr/web exec playwright install chromium`, or the
