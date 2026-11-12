@@ -41,13 +41,14 @@ there is tagged as stated in the post, inferred, or found while building.
 ```
 apps/
   web/                @x-ssr/web: the new app
-    server/           Fastify app (create() for Watt), standalone main.ts, watt config
+    server/           app routes on top of @x-ssr/server (create() for Watt), main.ts, watt config
     src/              entry-server.tsx (per-audience rendering), ssr/inject.ts (data splicing),
                       relay/, router/, routes/, app/, entries/
     scripts/          probe, browser-check, ngroutes, precompress
     tests/            build-output checks (startup chunk graph)
   legacy-ssr/         @x-ssr/legacy-ssr: stand-in for the old rweb SSR / Jetfuel SSR
 packages/
+  server/             @x-ssr/server: Fastify assembly, dev (Vite) / production SSR loading, assets, metrics
   mock-api/           @x-ssr/mock-api: mock GraphQL API, guest token, feature flags, schema.graphql
   url-cleanup/        @x-ssr/url-cleanup: trailing-punctuation 301 rule (with open-redirect guard)
   seo-parity/         @x-ssr/seo-parity: SEO parity CLI (bin: seo-parity)
@@ -106,7 +107,7 @@ servers:
 node packages/seo-parity/src/seo-parity.ts --old "$(nsl get x-ssr-legacy)" --new "$(nsl get x-ssr)"
 ```
 
-`NODE_ENV=development` switches `apps/web/server/app.ts` from the built
+`NODE_ENV=development` switches `@x-ssr/server` from the built
 bundles to Vite in middleware mode, behind the same Fastify server:
 
 - **SSR:** modules are loaded per request with `ssrLoadModule`, so edits under
@@ -145,7 +146,8 @@ The unit tests cover:
 - request keys;
 - route matching;
 - the SEO parity extractor;
-- the startup chunk graph.
+- the startup chunk graph;
+- the server assembly: manifest-based assets, security headers, metrics, HTML streaming.
 
 The bugs found while building this project each have a regression test.
 

@@ -1,0 +1,33 @@
+{
+  "name": "@x-ssr/server",
+  "private": true,
+  "type": "module",
+  "description": "Fastify server assembly for SSR apps, the analogue of X's @x-clients/server.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/middie": "catalog:",
+    "@fastify/static": "catalog:",
+    "fastify": "catalog:"
+  },
+  "peerDependencies": {
+    "vite": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@x-ssr/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

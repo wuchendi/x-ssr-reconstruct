@@ -12,10 +12,9 @@
     "dev": "NODE_ENV=development nsl run --name x-ssr node --watch-path=server --watch-path=../../packages server/main.ts"
   },
   "dependencies": {
-    "@fastify/static": "catalog:",
     "@x-ssr/mock-api": "workspace:*",
+    "@x-ssr/server": "workspace:*",
     "@x-ssr/url-cleanup": "workspace:*",
-    "fastify": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-relay": "catalog:",
@@ -23,7 +22,6 @@
   },
   "devDependencies": {
     "@babel/core": "catalog:",
-    "@fastify/middie": "catalog:",
     "@platformatic/node": "catalog:",
     "@rolldown/plugin-babel": "catalog:",
     "@types/node": "catalog:",

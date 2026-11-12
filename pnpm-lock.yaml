@@ -266,18 +266,15 @@ importers:
 
   apps/web:
     dependencies:
-      '@fastify/static':
-        specifier: 'catalog:'
-        version: 10.1.10
       '@x-ssr/mock-api':
         specifier: workspace:*
         version: link:../../packages/mock-api
+      '@x-ssr/server':
+        specifier: workspace:*
+        version: link:../../packages/server
       '@x-ssr/url-cleanup':
         specifier: workspace:*
         version: link:../../packages/url-cleanup
-      fastify:
-        specifier: 'catalog:'
-        version: 5.12.8
       react:
         specifier: 'catalog:'
         version: 19.3.1
@@ -294,9 +291,6 @@ importers:
       '@babel/core':
         specifier: 'catalog:'
         version: 8.1.0
-      '@fastify/middie':
-        specifier: 'catalog:'
-        version: 9.3.6
       '@platformatic/node':
         specifier: 'catalog:'
         version: 3.78.0
@@ -371,6 +365,34 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(vite@8.3.7(@types/node@26.6.6)(yaml@2.9.1))
+
+  packages/server:
+    dependencies:
+      '@fastify/middie':
+        specifier: 'catalog:'
+        version: 9.3.6
+      '@fastify/static':
+        specifier: 'catalog:'
+        version: 10.1.10
+      fastify:
+        specifier: 'catalog:'
+        version: 5.12.8
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      '@x-ssr/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.7(@types/node@26.6.6)(yaml@2.9.1)
       vitest:
         specifier: 'catalog:'
         version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(vite@8.3.7(@types/node@26.6.6)(yaml@2.9.1))

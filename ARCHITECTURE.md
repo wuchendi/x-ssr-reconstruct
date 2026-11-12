@@ -60,11 +60,26 @@ layout.
 
 ## 3. Server assembly (`@x-clients/server` analogue)
 
-`server/app.ts` → `create()`
+`packages/server` (`@x-ssr/server`) → `createServer()`, plus
+`apps/web/server/app.ts` → `create()`
 
 - **[post]** Fastify handles every request. The app is assembled from
   configuration: security headers, cookies, metrics, streaming rendering, and
   graceful shutdown.
+- **[post]** X keeps that assembly in a shared package of its own,
+  `@x-clients/server`. Here it is `@x-ssr/server`, which knows nothing about
+  routes, audiences or upstreams. It provides:
+  - Fastify with security headers and `/metrics` counters;
+  - production SSR loading: the built entry, `/assets` served immutable and
+    precompressed, and asset resolution from the Vite manifest;
+  - dev SSR loading (see §12);
+  - `sendHtml()` with `Server-Timing`;
+  - `parseCookies()` and `withTimeout()`;
+  - `listen()` with graceful shutdown.
+
+  The web app's `server/app.ts` adds only what is specific to it: the edge
+  contract (`audienceOf()`), guest token and feature flags, the GraphQL
+  endpoint, URL cleanup, and the render route.
 - **[post]** Platformatic Watt runs the app as several worker threads in one
   process, and replaces any worker whose event loop or memory stays over its
   limit. Watt's contract is simple: export `create()` returning a Fastify
@@ -80,7 +95,7 @@ layout.
   stalled loop can fire a 1s timer before it handles a response that already
   arrived. X saw 1–9% of renders time out against a ~25 ms upstream. Their fix
   was more workers (lower event-loop utilisation per worker), not longer
-  timeouts. `withTimeout()` carries the note.
+  timeouts. `withTimeout()` in `@x-ssr/server` carries the note.
 - **[found]** When an upstream times out *after* the shell has been sent,
   React marks that boundary as client-rendered (error #419). The browser then
   fetches the data itself through the replay network's API fallback. The
@@ -208,7 +223,7 @@ or dialog opened right after still finds them.
 - **[post]** On slow links, JS downloads competed for bandwidth with the
   render-blocking CSS. A small inline script now waits for the stylesheet's
   `load` event, then adds the modulepreloads for the chunks the server rendered
-  (from the Vite manifest; `resolveAssets()`) and the entry script.
+  (from the Vite manifest; `assets()` in `@x-ssr/server`) and the entry script.
 - **[post]** The entry is an **async** module, not deferred. A deferred module
   waits until the whole streamed document is parsed, which means waiting for
   the slowest Suspense boundary. An async module runs on arrival; React
@@ -351,7 +366,7 @@ counters, which shows that requests are spread across worker threads.
 
 ## 12. Development mode
 
-`server/app.ts` → `developmentRenderer()`
+`packages/server/src/development.ts` → `developmentMode()`
 
 - **[inferred]** One Fastify server serves both modes, so dev exercises the
   same streaming, audience and replay code as production. In dev:
