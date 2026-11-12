@@ -48,12 +48,40 @@ function debugFailure(req: FastifyRequest, query: string): 'http' | 'graphql' | 
   return null
 }
 
+// Degradation only the browser sees: a boundary the server couldn't finish,
+// a section or page error, a failed navigation. Fixed types keep the
+// counters bounded; the endpoint is public, so the payload is small and
+// validated.
+const CLIENT_EVENT_TYPES = ['recoverable-error', 'section-error', 'page-error', 'navigation-failed'] as const
+type ClientEventType = (typeof CLIENT_EVENT_TYPES)[number]
+
+function parseClientEvent(body: unknown): { type: ClientEventType; route?: string; detail?: string } | null {
+  if (typeof body !== 'object' || body === null) return null
+  const { type, route, detail } = body as Record<string, unknown>
+  if (!CLIENT_EVENT_TYPES.includes(type as ClientEventType)) return null
+  if (route !== undefined && (typeof route !== 'string' || route.length > 200)) return null
+  if (detail !== undefined && (typeof detail !== 'string' || detail.length > 500)) return null
+  return { type: type as ClientEventType, route, detail }
+}
+
 export async function create(options: ApiOptions) {
   const app = Fastify({
     logger: { level: options.logLevel ?? process.env.LOG_LEVEL ?? 'info' },
     return503OnClosing: true,
   })
   const persisted = loadPersistedQueries(options.persistedQueries, { reload: options.reload })
+  const clientEvents = Object.fromEntries(CLIENT_EVENT_TYPES.map((t) => [t, 0])) as Record<ClientEventType, number>
+
+  app.post('/i/api/client-events', { bodyLimit: 4096 }, async (req, reply) => {
+    const event = parseClientEvent(req.body)
+    if (!event) return reply.code(400).send({ error: 'Unknown or malformed client event' })
+    clientEvents[event.type]++
+    req.log.warn({ clientEvent: event }, 'client degradation')
+    return reply.code(204).send()
+  })
+
+  // Internal: on the API's own port, not under /i/api (the edge doesn't route it).
+  app.get('/metrics', async () => ({ clientEvents }))
 
   app.post('/i/api/1.1/guest/activate.json', async () => ({ guest_token: await fetchGuestToken() }))
 

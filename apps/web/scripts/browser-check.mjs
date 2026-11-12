@@ -2,6 +2,9 @@
 import { chromium } from 'playwright'
 
 const BASE = process.env.BASE ?? 'http://station:3300'
+// The API's own port (its /metrics isn't routed under /i/api).
+const API_BASE = process.env.API_BASE ?? 'http://127.0.0.1:3302'
+const clientEvents = async () => (await (await fetch(`${API_BASE}/metrics`)).json()).clientEvents
 const results = []
 const check = (name, ok, detail = '') => results.push({ ok, name, detail })
 
@@ -174,6 +177,18 @@ async function open(path, { cookie, slow } = {}) {
     topAfterPush === 0 && Math.abs(restored - leftAt) <= 2 && log.errors.length === 0,
     `left at ${leftAt}, after push ${topAfterPush}, restored ${restored}`,
   )
+  // G3: the position survives a reload (sessionStorage + the entry's key).
+  await page.evaluate(() => window.scrollTo(0, 1500))
+  await page.waitForTimeout(100)
+  const beforeReload = await page.evaluate(() => window.scrollY)
+  await page.reload({ waitUntil: 'load' })
+  await page.waitForFunction((y) => Math.abs(window.scrollY - y) <= 2, beforeReload, { timeout: 5000 }).catch(() => {})
+  const afterReload = await page.evaluate(() => window.scrollY)
+  check(
+    'G3 reload restores the scroll position',
+    Math.abs(afterReload - beforeReload) <= 2 && beforeReload > 0,
+    `before ${beforeReload}, after ${afterReload}`,
+  )
   await ctx.close()
 }
 
@@ -181,6 +196,7 @@ async function open(path, { cookie, slow } = {}) {
 // fails alone, and recovers on retry. Needs DEBUG_FAILURES=1 on the web
 // server and the API (x-debug-fail makes the API answer 503).
 if (process.env.DEBUG_FAILURES === '1') {
+  const eventsBefore = await clientEvents()
   const ctx = await browser.newContext({
     serviceWorkers: 'block',
     extraHTTPHeaders: { 'x-debug-fail': 'ConversationQuery' },
@@ -202,6 +218,13 @@ if (process.env.DEBUG_FAILURES === '1') {
       errors.length === 0,
     `section errors ${sectionErrors}, alerts ${alerts}, posts ${posts}, page errors ${errors.length}`,
   )
+  // The browser reported the section error (via sendBeacon -> API).
+  let sectionReported = false
+  for (let i = 0; i < 25 && !sectionReported; i++) {
+    sectionReported = (await clientEvents())['section-error'] > eventsBefore['section-error']
+    if (!sectionReported) await page.waitForTimeout(200)
+  }
+  check('H1b the section error is reported to the API', sectionReported)
   await ctx.setExtraHTTPHeaders({})
   await page.locator('.section-error button').click()
   await page
@@ -231,6 +254,32 @@ if (process.env.DEBUG_FAILURES === '1') {
     `section errors ${shown}`,
   )
   await ctx3.close()
+
+  // H4: only the server's render fails (the document request carries
+  // x-debug-fail, the browser's API call doesn't). The browser recovers the
+  // section and reports the recoverable error.
+  const recoverableBefore = (await clientEvents())['recoverable-error']
+  const ctx4 = await browser.newContext({ serviceWorkers: 'block' })
+  const page4 = await ctx4.newPage()
+  await page4.route('**/ada/status/1001', (route) =>
+    route.continue({ headers: { ...route.request().headers(), 'x-debug-fail': 'ConversationQuery' } }),
+  )
+  await page4.goto(`${BASE}/ada/status/1001`, { waitUntil: 'load' })
+  await page4
+    .waitForFunction(() => document.querySelectorAll('article.post').length > 1, null, { timeout: 15000 })
+    .catch(() => {})
+  let recoveredReported = false
+  for (let i = 0; i < 25 && !recoveredReported; i++) {
+    recoveredReported = (await clientEvents())['recoverable-error'] > recoverableBefore
+    if (!recoveredReported) await page4.waitForTimeout(200)
+  }
+  const recovered = await page4.locator('article.post').count()
+  check(
+    'H4 server-only failure: the browser recovers the section and reports it',
+    recovered > 1 && recoveredReported && (await page4.locator('.section-error').count()) === 0,
+    `posts ${recovered}, reported ${recoveredReported}`,
+  )
+  await ctx4.close()
 }
 
 // D. Slow 4G + slow conversation upstream: the shell hydrates long before the

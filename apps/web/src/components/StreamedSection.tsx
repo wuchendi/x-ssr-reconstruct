@@ -3,6 +3,7 @@ import { Component, Suspense, useCallback, useEffect, useState } from 'react'
 import type { PreloadedQuery } from 'react-relay'
 import { loadQuery } from 'react-relay'
 import type { ConcreteRequest, OperationType } from 'relay-runtime'
+import { reportClientEvent } from '../telemetry.ts'
 
 type Ref = PreloadedQuery<OperationType>
 
@@ -62,6 +63,7 @@ class SectionBoundary extends Component<
 
   componentDidCatch(error: Error) {
     console.error(error)
+    reportClientEvent({ type: 'section-error', detail: `${this.props.what}: ${error.message}` })
   }
 
   render() {

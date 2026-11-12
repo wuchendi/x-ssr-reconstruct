@@ -673,6 +673,32 @@ handled.
   they add contention and timeouts. A clean reproduction of the post's claim
   needs a dedicated machine, with the load generator and the API elsewhere.
 
+### Small wins: codegen in dev, client events, scroll across reloads
+
+- **[inferred] Dev codegen.** A `serve`-only Vite plugin reruns
+  relay-compiler, debounced, when a file with a `graphql` tag changes.
+  Generated files don't retrigger it. Verified: adding a field to a
+  fragment updated the artifact and the persisted ids, and the page kept
+  rendering. Reverting reverted the artifact; two compiler runs, no loop.
+- **[inferred] Client events.** The browser beacons the four kinds of
+  degradation only it can see to `/i/api/client-events`. The API counts them
+  under fixed keys, validates the payload and limits it to 4 KB. Browser
+  checks H1b and H4 assert the counts move.
+- **[found]** React reports `onRecoverableError` ("the server errored, the
+  client took over") only when the client actually recovers. If the
+  browser's own fetch fails too, the section's error boundary catches it and
+  no recoverable error is reported. Check H4 therefore fails only the
+  document request (Playwright `page.route`); the browser's API call
+  succeeds, the replies render, and the recoverable error is counted.
+- **[found]** Restoring the scroll position after a reload at
+  `DOMContentLoaded` was clamped to 0: the HTML had arrived, but the
+  streamed boundaries were not revealed yet, so the page was too short. The
+  likely cause is that React reveals Suspense boundaries in batches; this was
+  not isolated. The restore now retries on animation frames for up to 2 s
+  and stops as soon as the user scrolls, touches or types. Positions persist
+  in `sessionStorage` (`pagehide`), keyed by the history entry's key, capped
+  at 50 entries.
+
 ## 17. Not reconstructed
 
 - The Rust card-image service (record-and-replay plus pixel-diff harnesses).

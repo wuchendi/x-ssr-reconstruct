@@ -1,7 +1,61 @@
+import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import babel from '@rolldown/plugin-babel'
 import react from '@vitejs/plugin-react'
 import relay from 'babel-plugin-relay'
+import type { Plugin } from 'vite'
 import { defineConfig } from 'vite'
+
+// Dev only: rerun relay-compiler when a file with a graphql tag changes.
+// Relay's own --watch needs watchman; without this, an edited query keeps
+// using its stale artifact until someone remembers `pnpm codegen`.
+function relayCodegenOnChange(): Plugin {
+  const root = fileURLToPath(new URL('.', import.meta.url))
+  const compiler = fileURLToPath(new URL('node_modules/.bin/relay-compiler', import.meta.url))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let running = false
+  let again = false
+  return {
+    name: 'x-ssr:relay-codegen',
+    apply: 'serve',
+    configureServer(server) {
+      const run = () => {
+        if (running) {
+          again = true
+          return
+        }
+        running = true
+        const child = spawn(compiler, [], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
+        let stderr = ''
+        child.stderr.on('data', (d) => {
+          stderr += d
+        })
+        child.on('exit', (code) => {
+          running = false
+          if (code === 0) server.config.logger.info('relay-compiler: artifacts updated', { timestamp: true })
+          else server.config.logger.error(`relay-compiler failed:\n${stderr}`, { timestamp: true })
+          if (again) {
+            again = false
+            run()
+          }
+        })
+      }
+      const onFile = (file: string) => {
+        if (!/\.(ts|tsx)$/.test(file) || file.includes('__generated__') || !file.startsWith(`${root}src/`)) return
+        try {
+          if (!readFileSync(file, 'utf8').includes('graphql`')) return
+        } catch {
+          return
+        }
+        clearTimeout(timer)
+        timer = setTimeout(run, 150)
+      }
+      server.watcher.on('change', onFile)
+      server.watcher.on('add', onFile)
+    },
+  }
+}
 
 type ModuleInfoLike = { isEntry: boolean; importers: readonly string[] }
 type Ctx = { getModuleInfo(id: string): ModuleInfoLike | null }
@@ -33,7 +87,7 @@ function loadedAtStartup(id: string, ctx: Ctx, seen = new Set<string>()): boolea
 const startupNonEntry = (id: string, ctx: Ctx) => loadedAtStartup(id, ctx) && !ctx.getModuleInfo(id)?.isEntry
 
 export default defineConfig(({ isSsrBuild }) => ({
-  plugins: [babel({ plugins: [[relay, { eagerEsModules: true }]] }), react()],
+  plugins: [babel({ plugins: [[relay, { eagerEsModules: true }]] }), react(), relayCodegenOnChange()],
   build: isSsrBuild
     ? { outDir: 'dist/server', emptyOutDir: true }
     : {

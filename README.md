@@ -130,8 +130,9 @@ bundles to Vite in middleware mode, behind the same Fastify server:
 - **Server code:** `node --watch-path` restarts on changes to `server/` or
   `packages/`. Plain `--watch` would also follow the temporary
   `vite.config` bundle that Vite writes and deletes, and restart in a loop.
-- **GraphQL:** run `pnpm --filter @x-ssr/web codegen` after changing a
-  `graphql` tag. Relay's watch mode needs watchman, which is not assumed.
+- **GraphQL:** saving a file with a `graphql` tag reruns relay-compiler, via a
+  dev-only Vite plugin; Relay's own `--watch` needs watchman. The artifacts
+  and persisted ids update, and the API picks up the new ids per request.
 
 ## Turbo tasks
 
@@ -202,6 +203,11 @@ Remaining `biome-ignore` comments say why each exception is intentional.
   `Accept-Encoding`. The compressor is flushed after every React flush, so
   streaming survives. The `/ada` page went from 32.5 KB to 2.8 KB on the wire,
   with the shell still arriving first.
+- **Client events:** degradation only the browser sees is sent with
+  `sendBeacon` to `POST /i/api/client-events`: a server boundary recovered
+  in the browser, a section or page error, a failed navigation. The payload
+  has fixed types and a 4 KB limit. The counts are at the API's own
+  `GET /metrics`, which is not routed under `/i/api`.
 - **Errors:** page requests that fail before the first byte get an HTML 500
   page; API calls get JSON. A client-side error boundary keeps the document
   (and the top bar) alive.
@@ -241,7 +247,7 @@ It exits with 1 on any difference.
 
 ## Browser checks
 
-`apps/web/scripts/browser-check.mjs` runs 26 checks in real Chromium:
+`apps/web/scripts/browser-check.mjs` runs 29 checks in real Chromium:
 
 - hydration without errors;
 - no GraphQL request at load;
@@ -252,9 +258,9 @@ It exits with 1 on any difference.
 - signed-in Home;
 - no CSP violations (initial load, streamed boundaries, signed-in app);
 - navigating between routes with and without a primary query, including back;
-- scroll restoration on back, and relative timestamps after hydration;
+- scroll restoration on back and across a reload, and relative timestamps after hydration;
 - user text that looks like markup stays text;
-- with `DEBUG_FAILURES=1`: a failed streamed section (HTTP failure, or GraphQL errors that null the root) shows its own error and recovers on retry.
+- with `DEBUG_FAILURES=1`: a failed streamed section (HTTP failure, or GraphQL errors that null the root) shows its own error and recovers on retry; a server-only failure is recovered by the browser; both are reported to the API.
 
 It needs Playwright with a matching browser:
 `pnpm --filter @x-ssr/web exec playwright install chromium`, or the

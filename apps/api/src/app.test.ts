@@ -94,3 +94,26 @@ describe('debug failures (test harness, off by default)', () => {
     await debug.close()
   })
 })
+
+describe('client events (degradation the browser saw)', () => {
+  const send = (payload: unknown) =>
+    app.inject({ method: 'POST', url: '/i/api/client-events', payload: payload as object })
+
+  it('counts known event types; the counts are on the API port only', async () => {
+    const before = (await app.inject('/metrics')).json().clientEvents['section-error']
+    expect((await send({ type: 'section-error', route: '/ada/status/1001', detail: 'replies' })).statusCode).toBe(204)
+    expect((await app.inject('/metrics')).json().clientEvents['section-error']).toBe(before + 1)
+  })
+
+  it.each([
+    ['an unknown type', { type: 'anything' }],
+    ['a non-string detail', { type: 'page-error', detail: { deep: true } }],
+    ['an over-long route', { type: 'page-error', route: 'x'.repeat(500) }],
+  ])('rejects %s', async (_label, payload) => {
+    expect((await send(payload)).statusCode).toBe(400)
+  })
+
+  it('rejects oversized bodies', async () => {
+    expect((await send({ type: 'page-error', detail: 'x'.repeat(10_000) })).statusCode).toBe(413)
+  })
+})

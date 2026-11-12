@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Component } from 'react'
+import { reportClientEvent } from '../telemetry.ts'
 
 // Without a boundary, a render error unmounts the whole hydrated document
 // (hydrateRoot(document)) and leaves a blank page. Server errors inside a
@@ -13,6 +14,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   componentDidCatch(error: Error) {
     console.error(error)
+    reportClientEvent({ type: 'page-error', detail: error.message })
   }
 
   render() {

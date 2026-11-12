@@ -3,6 +3,7 @@ import { App } from '../app/App.tsx'
 import { createClientEnvironment } from '../relay/client.ts'
 import { loadRoute } from '../router/load.ts'
 import { matchRoute } from '../router/routes.ts'
+import { reportClientEvent } from '../telemetry.ts'
 
 export async function boot(signedIn: boolean) {
   const env = createClientEnvironment()
@@ -42,6 +43,7 @@ export async function boot(signedIn: boolean) {
       // rendered here instead: expected degradation, not a crash.
       onRecoverableError(error) {
         console.warn('[ssr] boundary recovered on the client:', error)
+        reportClientEvent({ type: 'recoverable-error', detail: String(error) })
       },
     },
   )

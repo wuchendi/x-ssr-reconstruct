@@ -13,7 +13,9 @@ import type { AppCtx } from './context.ts'
 import { AppContext } from './context.ts'
 import type { Assets } from './Document.tsx'
 import { Document } from './Document.tsx'
+import { loadScrollPositions, saveScrollPositions } from './scroll-store.ts'
 import '../styles.css'
+import { reportClientEvent } from '../telemetry.ts'
 
 export type RouteState = { route: RouteDef; params: Params; refs: Refs; Page: ComponentType<PageProps>; href: string }
 
@@ -29,6 +31,11 @@ type Props = {
 const PRELOAD_MAX = 20
 // Unique within the tab's history; crypto.randomUUID() needs a secure context.
 const newEntryKey = () => Math.random().toString(36).slice(2)
+// Re-insert so the most recently used entries stay last (kept when capped).
+function remember(positions: Map<string, number>, key: string, y: number) {
+  positions.delete(key)
+  positions.set(key, y)
+}
 const PRELOAD_TTL_MS = 30_000
 
 export function App({ env, audience, signedIn, flags, assets, initial }: Props) {
@@ -62,6 +69,38 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
     history.scrollRestoration = 'manual'
     scroll.key = history.state?.key ?? newEntryKey()
     history.replaceState({ ...history.state, key: scroll.key }, '')
+    // Positions survive reloads and trips to other sites (sessionStorage).
+    for (const [k, y] of loadScrollPositions(sessionStorage)) scroll.positions.set(k, y)
+    const saved = scroll.positions.get(scroll.key)
+    if (saved !== undefined) {
+      // Until the streamed boundaries are revealed the page is too short and
+      // the scroll is clamped, even after DOMContentLoaded (React reveals
+      // boundaries in batches). Keep trying for a moment, unless the user
+      // starts scrolling first.
+      const restore = () => {
+        const until = performance.now() + 2000
+        let cancelled = false
+        const cancel = () => {
+          cancelled = true
+        }
+        for (const type of ['wheel', 'touchstart', 'keydown'])
+          addEventListener(type, cancel, { once: true, passive: true })
+        const attempt = () => {
+          if (cancelled) return
+          window.scrollTo(0, saved)
+          if (Math.abs(window.scrollY - saved) > 2 && performance.now() < until) requestAnimationFrame(attempt)
+        }
+        attempt()
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', restore, { once: true })
+      else restore()
+    }
+    const persist = () => {
+      remember(scroll.positions, scroll.key, window.scrollY)
+      saveScrollPositions(sessionStorage, scroll.positions)
+    }
+    addEventListener('pagehide', persist)
+    return () => removeEventListener('pagehide', persist)
   }, [scroll])
 
   const gate = useMemo(() => createNavigationGate(), [])
@@ -86,7 +125,7 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
           }
           // On popstate the entry has already changed, but scrollY still
           // belongs to the page being left: save it under that page's key.
-          scroll.positions.set(scroll.key, window.scrollY)
+          remember(scroll.positions, scroll.key, window.scrollY)
           if (push) {
             scroll.key = newEntryKey()
             history.pushState({ key: scroll.key }, '', href)
@@ -100,7 +139,9 @@ export function App({ env, audience, signedIn, flags, assets, initial }: Props) 
         // The route's chunk failed to load (e.g. a deploy removed it): fall
         // back to a full page load instead of silently ignoring the click.
         .catch(() => {
-          if (isLatest()) location.href = href
+          if (!isLatest()) return
+          reportClientEvent({ type: 'navigation-failed', detail: href })
+          location.href = href
         })
     },
     [cache, gate, prepare, scroll],
