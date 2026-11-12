@@ -3,23 +3,11 @@
     "target": "es2023",
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
-    "verbatimModuleSyntax": true,
-    "types": [
-      "node",
-      "vite/client"
-    ]
-  },
-  "include": [
-    "src",
-    "server",
-    "scripts",
-    "vite.config.ts",
-    "babel-plugin-relay.d.ts"
-  ]
+    "verbatimModuleSyntax": true
+  }
 }

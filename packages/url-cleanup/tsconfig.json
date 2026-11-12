@@ -1,0 +1,9 @@
+{
+  "extends": "@x-ssr/tsconfig/base.json",
+  "compilerOptions": {
+    "types": []
+  },
+  "include": [
+    "src"
+  ]
+}

@@ -1,5 +1,5 @@
 // Stand-in for the old crawler servers (rweb SSR + Jetfuel SSR), used only as
-// the *specification* side of scripts/seo-parity.ts.
+// the *specification* side of @x-ssr/seo-parity.
 //
 // It reads the same mock data but renders with its own hand-written template
 // (single quotes, different attribute order, unquoted attributes), so parity
@@ -11,10 +11,10 @@
 //   3. an x-default language alternate
 //   4. og:type
 import { createServer } from 'node:http'
-import { executeGraphQL } from './backend.ts'
+import { executeGraphQL } from '@x-ssr/mock-api'
 // Same rule, shared: a second hand-rolled copy is where the redirect guard
 // would be forgotten.
-import { cleanPath as cleanUrl } from './url-cleanup.ts'
+import { cleanPath as cleanUrl } from '@x-ssr/url-cleanup'
 
 const ORIGIN = 'https://x.example'
 const AUTH = { guestToken: 'legacy-ssr' }
@@ -25,16 +25,19 @@ const jsonLd = (v: unknown) => `<script type="application/ld+json">${JSON.string
 type Head = { status: number; title: string; description: string; canonical: string; image?: string; ogType: string; ld?: unknown }
 
 function page(h: Head): string {
-  const alt = ['en', 'ja', 'es'].map((l) => `<link rel=alternate hreflang=${l} href='${ORIGIN}${h.canonical}?lang=${l}'>`).join('')
+  // Every interpolated value is escaped: canonical comes from the request path,
+  // so "/x'><script>..." must not break out of an attribute.
+  const canonical = esc(ORIGIN + h.canonical)
+  const alt = ['en', 'ja', 'es'].map((l) => `<link rel=alternate hreflang=${l} href='${esc(`${ORIGIN}${h.canonical}?lang=${l}`)}'>`).join('')
   return `<!doctype html><html><head>
 <title>${esc(h.title)}</title>
 <meta content='${esc(h.description)}' name='description'>
 ${h.status === 404 ? `<meta content='noindex' name='robots'>` : ''}
-<link href='${ORIGIN}${h.canonical}' rel='canonical'>
-<link rel='alternate' hreflang='x-default' href='${ORIGIN}${h.canonical}'>${alt}
+<link href='${canonical}' rel='canonical'>
+<link rel='alternate' hreflang='x-default' href='${canonical}'>${alt}
 <meta content='${esc(h.title)}' property='og:title'><meta content='${esc(h.description)}' property='og:description'>
-<meta content='${h.ogType}' property='og:type'>
-${h.image ? `<meta content='${ORIGIN}${h.image}' property='og:image'>` : ''}
+<meta content='${esc(h.ogType)}' property='og:type'>
+${h.image ? `<meta content='${esc(ORIGIN + h.image)}' property='og:image'>` : ''}
 <meta content='${h.image ? 'summary_large_image' : 'summary'}' name='twitter:card'>
 </head><body>${h.ld ? jsonLd(h.ld) : ''}<noscript>legacy body</noscript></body></html>`
 }

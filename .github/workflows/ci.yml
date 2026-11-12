@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build, typecheck, unit tests
+        run: pnpm turbo run build typecheck test
+
+      - name: Start new app and legacy reference server
+        run: |
+          # Slow conversation upstream so the streaming hydration check is meaningful.
+          REPLIES_LATENCY_MS=5000 UPSTREAM_TIMEOUT_MS=10000 PORT=3300 LOG_LEVEL=warn node apps/web/server/main.ts &
+          PORT=3301 node apps/legacy-ssr/src/server.ts &
+          for port in 3300 3301; do
+            for i in $(seq 1 30); do curl -sf -o /dev/null "http://127.0.0.1:$port/" && break; sleep 1; done
+          done
+      - name: SEO parity
+        run: pnpm parity
+
+      - name: Install Chromium
+        run: pnpm --filter @x-ssr/web exec playwright install --with-deps chromium
+      - name: Browser checks
+        run: BASE=http://127.0.0.1:3300 pnpm e2e:browser

@@ -3,3 +3,4 @@ dist/
 __generated__/
 .tmp/
 *.log
+.turbo/

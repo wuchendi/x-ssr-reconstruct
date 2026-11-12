@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // SEO parity: request the same paths from two servers as a verified Googlebot
 // and compare what search engines read:
 //   status code + redirect target, title, meta description, canonical URL,
@@ -7,8 +8,8 @@
 // normalised away; only meaning is compared.
 //
 // Usage:
-//   node scripts/seo-parity.ts --old http://127.0.0.1:3301 --new http://127.0.0.1:3300 [path ...]
-//   node scripts/seo-parity.ts --old ... --new ... --paths-file paths.txt
+//   seo-parity --old http://127.0.0.1:3301 --new http://127.0.0.1:3300 [path ...]
+//   seo-parity --old ... --new ... --paths-file paths.txt
 // Exit code 1 when any path differs.
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'

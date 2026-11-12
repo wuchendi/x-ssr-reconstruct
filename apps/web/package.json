@@ -1,0 +1,42 @@
+{
+  "name": "@x-ssr/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "codegen": "relay-compiler",
+    "build": "vite build && vite build --ssr src/entry-server.tsx --outDir dist/server && node scripts/ngroutes.ts > dist/ngroutes.json && node scripts/precompress.ts",
+    "typecheck": "tsc -p .",
+    "test": "vitest run",
+    "start": "node server/main.ts",
+    "start:watt": "wattpm start",
+    "dev": "NODE_ENV=development nsl run --name x-ssr node --watch-path=server --watch-path=../../packages server/main.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "catalog:",
+    "@x-ssr/mock-api": "workspace:*",
+    "@x-ssr/url-cleanup": "workspace:*",
+    "fastify": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-relay": "catalog:",
+    "relay-runtime": "catalog:"
+  },
+  "devDependencies": {
+    "@babel/core": "catalog:",
+    "@fastify/middie": "catalog:",
+    "@platformatic/node": "catalog:",
+    "@rolldown/plugin-babel": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@x-ssr/tsconfig": "workspace:*",
+    "babel-plugin-relay": "catalog:",
+    "playwright": "catalog:",
+    "relay-compiler": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "wattpm": "catalog:"
+  }
+}

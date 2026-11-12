@@ -12,6 +12,10 @@ Each claim is tagged:
 - **[found]**: a non-obvious behaviour hit while building this. These are the
   most useful parts.
 
+File paths are relative to `apps/web` unless they start with `apps/` or
+`packages/`. The repo is a pnpm + Turborepo workspace; see the README for the
+layout.
+
 ## 1. Request lifecycle
 
 ```
@@ -271,7 +275,7 @@ These were run against the production build.
 | crawler `/nobody` | HTTP 404, complete document |
 | preview `/ada/status/1001` | 1.3 KB, `<head>` only, ~200 ms (the 650 ms conversation query is skipped) |
 
-### `scripts/browser-check.mjs`: Chromium 1.64 in a sibling container
+### `scripts/browser-check.mjs`: Chromium (Playwright 1.65) in a sibling container
 
 16/16 checks pass:
 
@@ -300,7 +304,7 @@ counters, which shows that requests are spread across worker threads.
 
 ## 11. SEO parity against the old servers
 
-`scripts/seo-parity.ts`, `server/legacy-ssr.ts`, `server/url-cleanup.ts`
+`packages/seo-parity`, `apps/legacy-ssr`, `packages/url-cleanup`
 
 - **[post]** The old SSR servers were treated as specifications. A small parity
   script requests the same path from two servers as a verified Googlebot and
@@ -320,7 +324,7 @@ counters, which shows that requests are spread across worker threads.
   - If either side redirects, only status and target are compared.
   - Redirect targets are compared as paths, so the two hosts don't matter.
   - Exit code 1 on any difference, so it can gate CI.
-- **[inferred]** `legacy-ssr.ts` stands in for rweb SSR / Jetfuel SSR. It reads
+- **[inferred]** `apps/legacy-ssr` stands in for rweb SSR / Jetfuel SSR. It reads
   the same data with a hand-written template (single quotes, different
   attribute order, unquoted attributes), so any false positive from markup
   would show up. It deliberately keeps four behaviours the new app lacked.
@@ -341,11 +345,43 @@ counters, which shows that requests are spread across worker threads.
   - **Fixes:**
     - `ogType` in `HeadData` and in each loader;
     - `x-default` and 404 `noindex` in `Document`;
-    - `cleanPath()` ported into `server/url-cleanup.ts`, which issues a 301
+    - `cleanPath()` ported into `packages/url-cleanup`, which issues a 301
       before render and keeps the query string.
   - **Second run:** 11/11 match. The browser checks still pass 16/16.
 
-## 12. Not reconstructed
+## 12. Development mode
+
+`server/app.ts` → `developmentRenderer()`
+
+- **[inferred]** One Fastify server serves both modes, so dev exercises the
+  same streaming, audience and replay code as production. In dev:
+  - Vite runs in middleware mode (`@fastify/middie`), with the HMR websocket
+    on Fastify's HTTP server.
+  - `ssrLoadModule('/src/entry-server.tsx')` runs on every request.
+  - The loader script points at `/__dev/entry/<name>.js`, a small module that
+    installs Vite's client and the React Refresh preamble (taken from
+    `vite.transformIndexHtml`), then imports the real entry.
+- **[found]** Relay's TypeScript artifacts import `ConcreteRequest` with a
+  plain `import`. With `verbatimModuleSyntax`, Vite's dev SSR keeps it, and
+  Node's ESM loader rejects the named import from the CommonJS
+  `relay-runtime`. The production bundle hid this, because Rolldown's CJS
+  interop just yields `undefined`. Fix: `"useImportTypeSyntax": true` in
+  `relay.config.json`.
+- **[found]** `node --watch` follows every imported file, including the
+  temporary `vite.config.ts.timestamp-*.mjs` bundle that Vite writes and then
+  deletes, so the dev server restarted in a loop. `--watch-path=server
+  --watch-path=../../packages` watches only what should restart it.
+- Dev runs behind nsl (`nsl run --name x-ssr …`). nsl assigns `PORT` and
+  serves the app at `x-ssr.localhost:3355`. Vite's default host check
+  already allows `*.localhost`, and the HMR websocket follows the page's
+  host, so both go through the proxy unchanged.
+- Verified in Chromium against the dev server, also through the nsl proxy:
+  - `/ada` hydrates with React's development build and reports no mismatches.
+  - No GraphQL request at load; the stylesheet applies on first paint.
+  - Editing `routes/_index/page.tsx` updates the heading through HMR without
+    a full reload.
+
+## 13. Not reconstructed
 
 - The Rust card-image service (record-and-replay plus pixel-diff harnesses).
   The prototype serves a placeholder.
@@ -359,14 +395,17 @@ counters, which shows that requests are spread across worker threads.
 
 ## Run
 
+From the repo root:
+
 ```bash
-pnpm install --ignore-workspace
-pnpm build                       # relay-compiler, client, SSR, ngroutes, precompress
-PORT=3300 node server/main.ts    # or: PORT=3300 npx wattpm start
-node scripts/probe.ts /ada person|search|preview [--full]
+pnpm install
+pnpm turbo run build typecheck test            # Relay codegen, client + SSR bundles, tsc, Vitest
+pnpm dev                                       # dev behind nsl: http://x-ssr.localhost:3355 (Vite middleware + HMR), http://x-ssr-legacy.localhost:3355
+PORT=3300 node apps/web/server/main.ts         # or: PORT=3300 pnpm --filter @x-ssr/web start:watt
+(cd apps/web && node scripts/probe.ts /ada person|search|preview [--full])
 # knobs: REPLIES_LATENCY_MS, UPSTREAM_TIMEOUT_MS
 
 # SEO parity against the legacy reference server
-PORT=3301 node server/legacy-ssr.ts
-node scripts/seo-parity.ts --old http://127.0.0.1:3301 --new http://127.0.0.1:3300 [path ...|--paths-file f]
+PORT=3301 node apps/legacy-ssr/src/server.ts
+pnpm parity                                    # or: node packages/seo-parity/src/seo-parity.ts --old <url> --new <url> [path ...|--paths-file f]
 ```

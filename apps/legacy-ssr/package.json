@@ -1,0 +1,19 @@
+{
+  "name": "@x-ssr/legacy-ssr",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.ts",
+    "typecheck": "tsc -p .",
+    "dev": "nsl run --name x-ssr-legacy node --watch src/server.ts"
+  },
+  "dependencies": {
+    "@x-ssr/mock-api": "workspace:*",
+    "@x-ssr/url-cleanup": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@x-ssr/tsconfig": "workspace:*",
+    "typescript": "catalog:"
+  }
+}

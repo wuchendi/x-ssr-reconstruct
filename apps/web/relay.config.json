@@ -1,10 +1,11 @@
 {
   "src": "./src",
-  "schema": "./schema.graphql",
+  "schema": "../../packages/mock-api/schema.graphql",
   "language": "typescript",
   "eagerEsModules": true,
   "excludes": [
     "**/node_modules/**",
     "**/__generated__/**"
-  ]
+  ],
+  "useImportTypeSyntax": true
 }
