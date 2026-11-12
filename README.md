@@ -73,7 +73,8 @@ PORT=3302 node apps/api/src/main.ts       # the API tier (the web app reads API_
 PORT=3300 node apps/web/server/main.ts    # single process
 # or
 PORT=3300 pnpm --filter @x-ssr/web start:watt   # 4 worker threads with health-based replacement (apps/web/watt.json)
-node apps/web/scripts/watt-stall-check.mjs      # blocks one worker; checks that Watt replaces it
+node apps/web/scripts/watt-stall-check.mjs      # blocks one worker; checks that Watt replaces it (also in CI)
+node apps/web/scripts/load-test.mjs             # autocannon: req/s, latency, TTFB, ELU with 1 vs 4 Watt workers (ARCHITECTURE §16)
 ```
 
 The browser calls `/i/api/*` on the site's own origin, as on x.com. In
@@ -165,7 +166,8 @@ The unit tests cover:
 - relative time formatting and literal request-path parsing;
 - Relay lifecycle: cancellable replay network, store retention / GC / TTL, the navigation gate;
 - the SSR entry itself: CSP nonces on every executable script, no injection paths, render timeout and client disconnect;
-- backpressure from a slow reader through the injector and the compressor; the GraphQL error policy.
+- backpressure from a slow reader through the injector and the compressor; the GraphQL error policy;
+- the crawler byte budget: the runtime guard, and a per-reply size regression (a 500-reply thread must fit 2 MB).
 
 The bugs found while building this project each have a regression test.
 
@@ -285,7 +287,7 @@ BASE=http://127.0.0.1:3300 pnpm e2e:browser
 - The real edge: IP verification, feature switch, per-country rollout.
 - Field metrics and Lighthouse CI.
 
-See ARCHITECTURE.md §16.
+See ARCHITECTURE.md §17.
 
 ## License
 

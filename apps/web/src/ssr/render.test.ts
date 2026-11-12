@@ -120,6 +120,25 @@ describe('script injection', () => {
   })
 })
 
+describe('crawler document size', () => {
+  // Googlebot reads the first 2 MB. The mock thread has 30 replies, so the
+  // budget is checked through the cost of one reply: a regression such as
+  // inlining every action icon per post shows up as a jump here.
+  it('keeps a 500-reply thread under the 2 MB Googlebot budget', async () => {
+    const BUDGET = 2 * 1024 * 1024
+    const noReplies: FetchGraphQL = async (id, variables, signal) =>
+      operationName(id) === 'ConversationQuery' ? { data: { post: { replies: [] } } } : mockApi(id, variables, signal)
+    const withReplies = await renderHtml('/ada/status/1001', { audience: 'crawler' })
+    const without = await renderHtml('/ada/status/1001', { audience: 'crawler', fetchGraphQL: noReplies })
+    const replies = parse(withReplies.html).filter((el) => el.name === 'article').length - 1
+    expect(replies).toBeGreaterThan(10)
+    const perReply = (Buffer.byteLength(withReplies.html) - Buffer.byteLength(without.html)) / replies
+    const projected = Buffer.byteLength(without.html) + 500 * perReply
+    expect(perReply).toBeLessThan(4096)
+    expect(projected).toBeLessThan(BUDGET)
+  })
+})
+
 describe('GraphQL errors', () => {
   // The replies field failed and, being non-null, nulled the post: the
   // section must fail (and the browser retry), not render nothing.

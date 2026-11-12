@@ -583,7 +583,97 @@ counters, which shows that requests are spread across worker threads.
   Now every error except the shell's own (which is rejected and logged by
   the caller) is reported.
 
-## 16. Not reconstructed
+### Crawler byte budget, Watt in CI
+
+- **[post]** Googlebot reads only the first 2 MB of a response.
+  - At runtime, crawler responses pass through `withByteBudget()`. An
+    oversized document is logged and counted as `crawler.over_budget`.
+  - In tests, the mock thread has only 30 replies, so the guard checks the
+    cost of one reply. Measured at about 0.8 KB, a 500-reply thread
+    projects to roughly 0.4 MB. A regression of 5 KB inline markup per post
+    fails the test.
+- **[found]** The first version of the guard counted bytes with a `'data'`
+  listener. That switches the stream to flowing mode, and Fastify starts
+  reading only after its async `onSend` hooks, so every byte emitted before
+  then was lost: a consumer arriving 20 ms late got an empty body. Counting
+  in a `Transform` fixed it; a test covers the late consumer.
+- `scripts/watt-stall-check.mjs` now runs in CI: Watt must replace a worker
+  whose event loop is blocked, while the other workers keep serving.
+
+## 16. Load test: what more rendering workers buy
+
+`apps/web/scripts/load-test.mjs` uses autocannon against the production
+build under Watt, with 1, 2 and 4 web workers.
+
+- **Setup**
+  - The API runs on 4 processes (`apps/api/scripts/cluster.mjs`), so it is
+    not the bottleneck; its CPU use is measured to check that.
+  - Requests accept br/gzip, like browsers. An independent prober measures
+    TTFB; autocannon's latency is the full response, which for a streamed
+    page is a very different number.
+  - Per-worker ELU and the maximum event-loop delay come from Watt's
+    Prometheus metrics. Web and API CPU come from `/proc`.
+  - Degradation is invisible in status codes (a section that fails after the
+    shell still returns 200), so failed boundaries and upstream timeouts are
+    counted from the web server's log.
+- **Caveats**
+  - One shared 8-vCPU VM (AMD EPYC 7B13). The load generator runs on the same
+    machine, with background load averaging 2–5.
+  - Single 10 s runs after a 2 s warm-up. The 4-worker numbers moved by up to
+    ~30% between runs; the shape held.
+
+**Rendering-bound** (mock API latency 0, 32 connections). Second run:
+
+| workers | scenario                  | req/s | p50 ms | p99 ms | TTFB p50 | ELU (mean) | web cores | API cores |
+| ------- | ------------------------- | ----- | ------ | ------ | -------- | ---------- | --------- | --------- |
+| 1       | person `/ada`             | 220   | 141    | 199    | 38       | 0.99       | 1.9       | 0.6       |
+| 2       | person `/ada`             | 437   | 70     | 114    | 21       | 0.99       | 2.8       | 0.8       |
+| 4       | person `/ada`             | 642   | 44     | 104    | 21       | 0.94       | 4.3       | 1.0       |
+| 1       | crawler `/ada`            | 249   | 127    | 158    | 56       | 0.99       | 2.0       | 0.4       |
+| 4       | crawler `/ada`            | 737   | 43     | 94     | 18       | 0.98       | 4.2       | 1.1       |
+| 1       | person `/ada/status/1001` | 218   | 147    | 209    | 33       | 0.99       | 1.6       | 0.5       |
+| 4       | person `/ada/status/1001` | 626   | 41     | 110    | 16       | 0.96       | 4.1       | 1.0       |
+
+- One worker saturates (ELU 0.99) at about 220 req/s for this page. Two
+  workers double throughput. Four reach 2.4–3×, limited by the shared machine
+  rather than by Node.
+- A single worker uses about 1.6–2 cores: zlib runs on libuv's thread pool,
+  plus GC and Watt's main thread.
+
+**Real upstream latency** (mock latency 60–650 ms, 32 connections):
+
+| workers | req/s | full response p50 | TTFB p50 | ELU (mean) |
+| ------- | ----- | ----------------- | -------- | ---------- |
+| 1       | 49    | 635 ms            | 153 ms   | 0.32       |
+| 2       | 51    | 608 ms            | 147 ms   | 0.21       |
+| 4       | 51    | 611 ms            | 147 ms   | 0.13       |
+
+- **[post] confirmed:** the same traffic spread over more workers cuts each
+  event loop's share (ELU 0.32 → 0.13).
+- Streaming shows here: the first byte comes 4× sooner than the full page
+  (TTFB about 150 ms, after the guest token, flags and header query; the
+  timeline takes 450 ms more).
+
+**False upstream timeouts: not reproduced cleanly.** The post saw 1–9% of
+renders hit a 1 s timeout against a ~25 ms upstream, because event-loop
+stalls of 1.9–3.7 s let the timer fire before an already-arrived response was
+handled.
+
+- At 256 connections, one worker queues heavily (p50 1.4 s, p99 7 s). The
+  longest event-loop delay is still only about 340–410 ms: our renders are
+  small, so latency comes from many requests interleaving, not from long
+  synchronous stalls. That gives no false timeouts at 1 s.
+- With the timeout lowered to 250 ms, one worker still saw none: a stall over
+  250 ms is rare, and it must coincide with an in-flight call.
+- Four workers saw 66 timeouts (56 failed responses). At that point the 8
+  vCPUs were oversubscribed: web 4.8 cores, API 0.9, the load generator,
+  and background load. The likely cause is real CPU starvation, not false
+  timeouts, but this was not isolated.
+- **Lesson:** more workers help only while there are idle cores. Past that,
+  they add contention and timeouts. A clean reproduction of the post's claim
+  needs a dedicated machine, with the load generator and the API elsewhere.
+
+## 17. Not reconstructed
 
 - The Rust card-image service (record-and-replay plus pixel-diff harnesses).
   The prototype serves a placeholder.

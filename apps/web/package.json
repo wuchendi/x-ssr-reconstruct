@@ -29,6 +29,7 @@
     "@vitejs/plugin-react": "catalog:",
     "@x-ssr/mock-api": "workspace:*",
     "@x-ssr/tsconfig": "workspace:*",
+    "autocannon": "catalog:",
     "babel-plugin-relay": "catalog:",
     "htmlparser2": "catalog:",
     "playwright": "catalog:",

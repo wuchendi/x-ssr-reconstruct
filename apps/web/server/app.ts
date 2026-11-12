@@ -6,6 +6,7 @@ import type { FastifyReply, FastifyRequest } from '@x-ssr/server'
 import { createServer, parseCookies } from '@x-ssr/server'
 import { cleanPath } from '@x-ssr/url-cleanup'
 import { createApiClient } from './api-client.ts'
+import { CRAWLER_BYTE_BUDGET, withByteBudget } from './byte-budget.ts'
 
 type EntryServer = typeof import('../src/entry-server.tsx')
 type Audience = 'person' | 'crawler' | 'preview'
@@ -152,9 +153,16 @@ export async function create() {
     server.count(`renders.${audience}`)
     if (guestToken) reply.header('set-cookie', `gt=${guestToken}; Path=/; HttpOnly; SameSite=Lax`)
     reply.header('vary', 'cookie')
+    const body =
+      audience === 'crawler'
+        ? withByteBudget(result.body, CRAWLER_BYTE_BUDGET, (bytes) => {
+            server.count('crawler.over_budget')
+            req.log.warn({ url: req.url, bytes }, 'crawler document over the 2 MB budget Googlebot reads')
+          })
+        : result.body
     return server.sendHtml(reply, {
       status: result.status,
-      body: result.body,
+      body,
       timing: { upstream: t1 - t0, shell: performance.now() - t1 },
     })
   })

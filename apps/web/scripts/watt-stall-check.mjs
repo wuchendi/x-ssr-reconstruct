@@ -78,7 +78,10 @@ await sleep(300)
 console.log(`${at()} stall started on one worker`)
 
 const during = await probe(12, 2000)
-console.log(`${at()} during: ${summary(during)} (requests routed to the stuck worker time out)`)
+const stuck = during.filter((r) => !r.ok).length
+console.log(
+  `${at()} during: ${summary(during)}${stuck ? ` (${stuck} routed to the stuck worker timed out)` : ' (none routed to the stuck worker)'}`,
+)
 
 const replaced = await waitForLog(/unhealthy.*Replacing it/i, 60_000)
 console.log(

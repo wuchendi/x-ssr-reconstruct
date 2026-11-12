@@ -13,7 +13,13 @@ const LATENCY_MS = {
   replies: Number(process.env.REPLIES_LATENCY_MS ?? 650),
   homeTimeline: 300,
 }
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+// MOCK_LATENCY_SCALE multiplies every latency; 0 removes them (load tests
+// that measure rendering rather than waiting).
+const LATENCY_SCALE = Number(process.env.MOCK_LATENCY_SCALE ?? 1)
+const sleep = (ms: number) => {
+  const scaled = ms * LATENCY_SCALE
+  return scaled > 0 ? new Promise((r) => setTimeout(r, scaled)) : Promise.resolve()
+}
 
 type UserRow = { id: string; screenName: string; name: string; bio: string; followers: number }
 type PostRow = { id: string; authorId: string; text: string; createdAt: string; replyTo?: string; photo?: string }

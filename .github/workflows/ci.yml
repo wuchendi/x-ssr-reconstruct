@@ -24,6 +24,11 @@ jobs:
       - name: Build, typecheck, unit tests
         run: pnpm turbo run build typecheck test
 
+      # Blocks one Watt worker's event loop; Watt must replace it while the
+      # other workers keep serving (own ports: 3310 web, 3312 API).
+      - name: Watt replaces a stuck worker
+        run: node apps/web/scripts/watt-stall-check.mjs
+
       - name: Start the API, the new app and the legacy reference server
         run: |
           # Slow conversation upstream so the streaming hydration check is meaningful.
