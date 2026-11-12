@@ -78,8 +78,12 @@ async function open(path, { cookie, slow } = {}) {
   await page.evaluate(() => (window.__marker = 1))
   const n = log.gql.length
   await post.click({ position: { x: 300, y: 50 } })
+  // pushState runs before React commits the transition, so the URL changes
+  // first. Wait for the new route to commit (its <title>), not for posts: the
+  // old profile page already has plenty. 3s is well under the slow
+  // conversation upstream, so this also shows the commit doesn't wait for it.
   await page.waitForURL(/\/status\/\d+$/)
-  await page.waitForSelector('article.post >> nth=1', { timeout: 5000 }).catch(() => {})
+  await page.waitForFunction(() => /on X-ish/.test(document.title), null, { timeout: 3000 }).catch(() => {})
   check('C1 client-side navigation (no full reload)', await page.evaluate(() => window.__marker === 1))
   check('C2 click reused the preload (no extra GraphQL)', log.gql.length === n, log.gql.slice(n).join(','))
   check('C3 title updated on navigation', /on X-ish/.test(await page.title()), await page.title())
