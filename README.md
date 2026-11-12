@@ -10,6 +10,11 @@ mock data, then checks the behaviour by running it. It is not affiliated with
 X. For the breakdown, see [ARCHITECTURE.md](./ARCHITECTURE.md). Every claim
 there is tagged as stated in the post, inferred, or found while building.
 
+The write-up (in Chinese), covering the interaction problems found between
+React, Node.js streams, Relay and Rolldown, and the trade-offs behind each
+design choice:
+[从 X 的 SSR 架构出发：React 流式渲染与 Node.js Stream 的工程深挖](https://wcd.pages.dev/posts/react-streaming-ssr-node-stream/).
+
 ## What it demonstrates
 
 - **One server, three audiences.**
