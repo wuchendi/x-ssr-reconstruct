@@ -1,0 +1,5 @@
+// Anti-slop: `x as unknown as T` (or any `as A as B`) defeats the type
+// checker instead of fixing the types.
+`$value as $first as $second` where {
+  register_diagnostic(span=$value, message="Chained type assertions bypass type checking. Fix the types, or narrow with a type guard.")
+}

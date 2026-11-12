@@ -17,8 +17,12 @@ export async function boot(signedIn: boolean) {
 
   const data = JSON.parse(document.getElementById('app-data')!.textContent!)
   const assets = {
-    css: [...document.querySelectorAll<HTMLLinkElement>('head link[rel=stylesheet]')].map((l) => l.getAttribute('href')!),
+    css: [...document.querySelectorAll<HTMLLinkElement>('head link[rel=stylesheet]')].map(
+      (l) => l.getAttribute('href')!,
+    ),
     loaderScript: document.getElementById('app-loader')!.textContent!,
+    // Browsers hide the nonce attribute after parsing; the property keeps it.
+    nonce: document.getElementById('app-loader')!.nonce || undefined,
   }
 
   // Hydrates the shell immediately; each Suspense boundary hydrates when its

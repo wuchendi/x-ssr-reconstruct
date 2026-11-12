@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
-import type { ConcreteRequest, OperationType, Variables } from 'relay-runtime'
 import type { PreloadedQuery } from 'react-relay'
+import type { ConcreteRequest, OperationType, Variables } from 'relay-runtime'
 
 export type Params = Record<string, string>
 export type Audience = 'person' | 'crawler' | 'preview'
@@ -23,6 +23,7 @@ export type RouteLoader = {
   primary?: QuerySpec
   // Streamed behind Suspense. Skipped entirely for link-preview bots.
   body?: Record<string, QuerySpec>
+  // biome-ignore lint/suspicious/noExplicitAny: a heterogeneous route table; each loader types its own primary data
   head: (primaryData: any, params: Params) => HeadData
   // Signed-in Home renders only in the browser in the new app.
   clientOnly?: boolean

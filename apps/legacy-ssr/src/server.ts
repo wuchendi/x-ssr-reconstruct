@@ -19,16 +19,28 @@ import { cleanPath as cleanUrl } from '@x-ssr/url-cleanup'
 const ORIGIN = 'https://x.example'
 const AUTH = { guestToken: 'legacy-ssr' }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-const jsonLd = (v: unknown) => `<script type="application/ld+json">${JSON.stringify(v).replace(/</g, '\\u003c')}</script>`
+const esc = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const jsonLd = (v: unknown) =>
+  `<script type="application/ld+json">${JSON.stringify(v).replace(/</g, '\\u003c')}</script>`
 
-type Head = { status: number; title: string; description: string; canonical: string; image?: string; ogType: string; ld?: unknown }
+type Head = {
+  status: number
+  title: string
+  description: string
+  canonical: string
+  image?: string
+  ogType: string
+  ld?: unknown
+}
 
 function page(h: Head): string {
   // Every interpolated value is escaped: canonical comes from the request path,
   // so "/x'><script>..." must not break out of an attribute.
   const canonical = esc(ORIGIN + h.canonical)
-  const alt = ['en', 'ja', 'es'].map((l) => `<link rel=alternate hreflang=${l} href='${esc(`${ORIGIN}${h.canonical}?lang=${l}`)}'>`).join('')
+  const alt = ['en', 'ja', 'es']
+    .map((l) => `<link rel=alternate hreflang=${l} href='${esc(`${ORIGIN}${h.canonical}?lang=${l}`)}'>`)
+    .join('')
   return `<!doctype html><html><head>
 <title>${esc(h.title)}</title>
 <meta content='${esc(h.description)}' name='description'>
@@ -48,7 +60,14 @@ async function profile(screenName: string): Promise<Head> {
     AUTH,
   )
   const u = ((r as { data?: unknown }).data as { user: { screenName: string; name: string; bio: string } | null }).user
-  if (!u) return { status: 404, title: 'Account not found / X-ish', description: "This account doesn't exist.", canonical: `/${screenName}`, ogType: 'profile' }
+  if (!u)
+    return {
+      status: 404,
+      title: 'Account not found / X-ish',
+      description: "This account doesn't exist.",
+      canonical: `/${screenName}`,
+      ogType: 'profile',
+    }
   return {
     status: 200,
     title: `${u.name} (@${u.screenName}) / X-ish`,
@@ -56,18 +75,38 @@ async function profile(screenName: string): Promise<Head> {
     canonical: `/${u.screenName}`,
     image: `/card/profile/${u.screenName}.png`,
     ogType: 'profile',
-    ld: { '@context': 'https://schema.org', '@type': 'ProfilePage', mainEntity: { '@type': 'Person', name: u.name, alternateName: `@${u.screenName}`, description: u.bio } },
+    ld: {
+      '@context': 'https://schema.org',
+      '@type': 'ProfilePage',
+      mainEntity: { '@type': 'Person', name: u.name, alternateName: `@${u.screenName}`, description: u.bio },
+    },
   }
 }
 
 async function post(screenName: string, id: string): Promise<Head> {
   const r = await executeGraphQL(
-    { query: 'query($id:ID!){post(id:$id){id text createdAt author{screenName name} media{url alt}}}', variables: { id } },
+    {
+      query: 'query($id:ID!){post(id:$id){id text createdAt author{screenName name} media{url alt}}}',
+      variables: { id },
+    },
     AUTH,
   )
-  type P = { id: string; text: string; createdAt: string; author: { screenName: string; name: string }; media: { url: string; alt: string }[] }
+  type P = {
+    id: string
+    text: string
+    createdAt: string
+    author: { screenName: string; name: string }
+    media: { url: string; alt: string }[]
+  }
   const p = ((r as { data?: unknown }).data as { post: P | null }).post
-  if (!p) return { status: 404, title: 'Post not found / X-ish', description: '', canonical: `/${screenName}/status/${id}`, ogType: 'article' }
+  if (!p)
+    return {
+      status: 404,
+      title: 'Post not found / X-ish',
+      description: '',
+      canonical: `/${screenName}/status/${id}`,
+      ogType: 'article',
+    }
   return {
     status: 200,
     title: `${p.author.name} on X-ish: "${p.text.slice(0, 60)}"`,
@@ -95,7 +134,8 @@ const server = createServer(async (req, res) => {
   }
   let head: Head
   const segs = path.split('/').filter(Boolean)
-  if (segs.length === 0) head = { status: 200, title: 'X-ish', description: 'Reconstruction demo', canonical: '/', ogType: 'website' }
+  if (segs.length === 0)
+    head = { status: 200, title: 'X-ish', description: 'Reconstruction demo', canonical: '/', ogType: 'website' }
   else if (segs.length === 1) head = await profile(decodeURIComponent(segs[0]))
   else if (segs.length === 3 && segs[1] === 'status') head = await post(segs[0], segs[2])
   else head = { status: 404, title: 'Page not found / X-ish', description: '', canonical: path, ogType: 'website' }
@@ -103,4 +143,5 @@ const server = createServer(async (req, res) => {
 })
 
 const port = Number(process.env.PORT ?? 3301)
-server.listen(port, '0.0.0.0', () => console.log(`legacy SSR listening on ${port}`))
+const host = process.env.HOST ?? '0.0.0.0'
+server.listen(port, host, () => console.log(`legacy SSR listening on ${host}:${port}`))

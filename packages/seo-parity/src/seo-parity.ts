@@ -93,7 +93,10 @@ export function extractFacts(html: string): Facts {
 }
 
 function collectTypes(node: unknown, out: Set<string>) {
-  if (Array.isArray(node)) return node.forEach((n) => collectTypes(n, out))
+  if (Array.isArray(node)) {
+    for (const n of node) collectTypes(n, out)
+    return
+  }
   if (!node || typeof node !== 'object') return
   for (const [k, v] of Object.entries(node)) {
     if (k === '@type') for (const t of [v].flat()) out.add(String(t))
@@ -130,7 +133,9 @@ type Diff = { field: string; old?: string; new?: string }
 export function diffFacts(a: Facts, b: Facts): Diff[] {
   // If either side redirects, the page body is irrelevant: the redirect is the finding.
   const redirect = 'location' in a || 'location' in b
-  const keys = (redirect ? ['status', 'location'] : [...new Set([...Object.keys(a), ...Object.keys(b)])]).sort(fieldOrder)
+  const keys = (redirect ? ['status', 'location'] : [...new Set([...Object.keys(a), ...Object.keys(b)])]).sort(
+    fieldOrder,
+  )
   return keys.filter((k) => a[k] !== b[k]).map((k) => ({ field: k, old: a[k], new: b[k] }))
 }
 
@@ -148,7 +153,10 @@ async function main() {
     process.exit(2)
   }
   const paths = values['paths-file']
-    ? readFileSync(values['paths-file'], 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
+    ? readFileSync(values['paths-file'], 'utf8')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'))
     : positionals.length
       ? positionals
       : DEFAULT_PATHS
@@ -175,7 +183,12 @@ async function main() {
 
   console.log(`\n${paths.length} paths, ${paths.length - differing} match, ${differing} differ`)
   if (fieldCounts.size) {
-    console.log(`fields: ${[...fieldCounts].sort((x, y) => y[1] - x[1]).map(([f, n]) => `${f} ×${n}`).join(', ')}`)
+    console.log(
+      `fields: ${[...fieldCounts]
+        .sort((x, y) => y[1] - x[1])
+        .map(([f, n]) => `${f} ×${n}`)
+        .join(', ')}`,
+    )
   }
   process.exit(differing ? 1 : 0)
 }

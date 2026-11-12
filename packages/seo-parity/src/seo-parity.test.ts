@@ -39,7 +39,10 @@ describe('extractFacts', () => {
 
 describe('diffFacts', () => {
   it('reports missing, extra and changed fields', () => {
-    const diffs = diffFacts({ status: '200', title: 'a', 'meta:og:type': 'profile' }, { status: '200', title: 'b', 'robots:robots': 'noindex' })
+    const diffs = diffFacts(
+      { status: '200', title: 'a', 'meta:og:type': 'profile' },
+      { status: '200', title: 'b', 'robots:robots': 'noindex' },
+    )
     expect(diffs).toEqual([
       { field: 'title', old: 'a', new: 'b' },
       { field: 'robots:robots', old: undefined, new: 'noindex' },

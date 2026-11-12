@@ -1,4 +1,5 @@
-import { Transform, type TransformCallback } from 'node:stream'
+import type { TransformCallback } from 'node:stream'
+import { Transform } from 'node:stream'
 
 // Sits between React's Fizz writer and the socket.
 //
@@ -14,10 +15,18 @@ export class ResponseInjector extends Transform {
   #react: Buffer[] = []
   #data: string[] = []
   #shellSent = false
+  #nonceAttr: string
+
+  // nonce: the response's CSP nonce, for the executable __rr.p() script. The
+  // JSON block is data, not script, so CSP doesn't apply to it.
+  constructor(nonce?: string) {
+    super()
+    this.#nonceAttr = nonce ? ` nonce="${escapeAttr(nonce)}"` : ''
+  }
 
   pushResponse(key: string, json: string) {
     this.#data.push(
-      `<script type="application/json" data-rr="${escapeAttr(key)}">${escapeScriptText(json)}</script><script>__rr.p()</script>`,
+      `<script type="application/json" data-rr="${escapeAttr(key)}">${escapeScriptText(json)}</script><script${this.#nonceAttr}>__rr.p()</script>`,
     )
   }
 
@@ -61,5 +70,9 @@ export class ResponseInjector extends Transform {
 
 // JSON inside <script>: "</script" or "<!--" in user text must not end the
 // element. \u003c is still valid JSON; U+2028/2029 are escaped for old parsers.
-const escapeScriptText = (s: string) => s.replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
+const escapeScriptText = (s: string) =>
+  s
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')

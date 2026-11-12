@@ -1,7 +1,9 @@
-import { Environment, Network, Observable, RecordSource, Store, type GraphQLResponse } from 'relay-runtime'
+import type { GraphQLResponse } from 'relay-runtime'
+import { Environment, Network, Observable, RecordSource, Store } from 'relay-runtime'
 import { requestKey } from './key.ts'
 
-export type FetchGraphQL = (query: string, variables: Record<string, unknown>) => Promise<GraphQLResponse>
+// Persisted queries: operations travel by id; the server resolves the text.
+export type FetchGraphQL = (id: string, variables: Record<string, unknown>) => Promise<GraphQLResponse>
 
 // One environment per request: the store holds this visitor's data and must
 // never be shared across requests.
@@ -12,7 +14,7 @@ export type FetchGraphQL = (query: string, variables: Record<string, unknown>) =
 export function createServerEnvironment(fetchGraphQL: FetchGraphQL, onResponse: (key: string, json: string) => void) {
   const network = Network.create((params, variables) =>
     Observable.from(
-      fetchGraphQL(params.text!, variables).then((response) => {
+      fetchGraphQL(params.id!, variables).then((response) => {
         onResponse(requestKey(params, variables), JSON.stringify(response))
         return response
       }),

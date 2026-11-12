@@ -15,11 +15,14 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
     "parity": "node packages/seo-parity/src/seo-parity.ts --old http://127.0.0.1:3301 --new http://127.0.0.1:3300",
     "e2e:browser": "node apps/web/scripts/browser-check.mjs",
     "clean": "bash scripts/clean.sh"
   },
   "devDependencies": {
+    "@biomejs/biome": "catalog:",
     "turbo": "catalog:"
   }
 }

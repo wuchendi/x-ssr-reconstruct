@@ -1,9 +1,11 @@
-import { PassThrough, type Readable } from 'node:stream'
+import type { Readable } from 'node:stream'
+import { PassThrough } from 'node:stream'
 import { renderToPipeableStream } from 'react-dom/server'
 import { createOperationDescriptor } from 'relay-runtime'
 import { App } from './app/App.tsx'
 import { stylesheetFirstLoader } from './app/boot-scripts.ts'
-import { createServerEnvironment, type FetchGraphQL } from './relay/server.ts'
+import type { FetchGraphQL } from './relay/server.ts'
+import { createServerEnvironment } from './relay/server.ts'
 import { loadRoute, primarySettled } from './router/load.ts'
 import { matchRoute } from './router/routes.ts'
 import type { Audience } from './router/types.ts'
@@ -21,6 +23,8 @@ export type RenderInput = {
   fetchGraphQL: FetchGraphQL
   resolveAssets: (routeId: string, signedIn: boolean) => RouteAssets
   onError: (err: unknown) => void
+  // CSP nonce for inline scripts (production); undefined when CSP is off.
+  nonce?: string
 }
 
 export type RenderResult = { status: number; body: Readable } | { status: 'unowned' }
@@ -34,7 +38,7 @@ export async function render(input: RenderInput): Promise<RenderResult> {
   const { route, params } = match
   const { audience } = input
 
-  const injector = new ResponseInjector()
+  const injector = new ResponseInjector(input.nonce)
   const env = createServerEnvironment(input.fetchGraphQL, (key, json) => {
     // Crawler documents never hydrate: they carry no data for the client.
     if (audience === 'person') injector.pushResponse(key, json)
@@ -56,7 +60,7 @@ export async function render(input: RenderInput): Promise<RenderResult> {
   const status = route.loader.head(primaryData, params).status
 
   const a = input.resolveAssets(route.id, input.signedIn)
-  const assets = { css: a.css, loaderScript: stylesheetFirstLoader(a.entry, a.preloads) }
+  const assets = { css: a.css, loaderScript: stylesheetFirstLoader(a.entry, a.preloads), nonce: input.nonce }
 
   const element = (
     <App
@@ -78,6 +82,8 @@ export async function render(input: RenderInput): Promise<RenderResult> {
       // default). Crawler documents must have every boundary resolved in place
       // and work without JS, so lift the threshold for bots.
       progressiveChunkSize: audience === 'person' ? undefined : Number.POSITIVE_INFINITY,
+      // React's own inline streaming scripts ($RC etc.) carry the CSP nonce too.
+      nonce: input.nonce,
       // People: send the shell as soon as it's ready, stream the rest.
       onShellReady() {
         if (audience !== 'person') return

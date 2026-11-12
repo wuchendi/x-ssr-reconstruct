@@ -4,7 +4,12 @@ import { useApp } from '../app/context.ts'
 // Plain links preload code + data on intent: hover or keyboard focus.
 export function Link({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
   const { navigate, preload, audience } = useApp()
-  if (audience === 'crawler') return <a href={href} className={className}>{children}</a>
+  if (audience === 'crawler')
+    return (
+      <a href={href} className={className}>
+        {children}
+      </a>
+    )
   return (
     <a
       href={href}

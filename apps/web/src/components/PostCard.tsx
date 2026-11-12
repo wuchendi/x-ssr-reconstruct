@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { graphql, useFragment } from 'react-relay'
 import { useApp } from '../app/context.ts'
 import type { PostCard_post$key } from './__generated__/PostCard_post.graphql.ts'
+import { Link } from './Link.tsx'
 import { Timestamp } from './Timestamp.tsx'
 
 const DWELL_MS = 100
@@ -37,6 +38,7 @@ export function PostCard({ post }: { post: PostCard_post$key }) {
   }
 
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: clicking anywhere on a post is a mouse shortcut; keyboard users follow the timestamp link
     <article
       className="post"
       data-post-id={p.id}
@@ -44,7 +46,10 @@ export function PostCard({ post }: { post: PostCard_post$key }) {
         if (!timer.current) timer.current = setTimeout(() => preload(href), DWELL_MS)
       }}
       onPointerLeave={cancel}
-      onPointerDown={() => (cancel(), preload(href))}
+      onPointerDown={() => {
+        cancel()
+        preload(href)
+      }}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('a')) return
         navigate(href)
@@ -54,7 +59,10 @@ export function PostCard({ post }: { post: PostCard_post$key }) {
         <a href={`/${p.author.screenName}`}>
           <b>{p.author.name}</b> <span className="muted">@{p.author.screenName}</span>
         </a>{' '}
-        · <Timestamp iso={p.createdAt} />
+        · {/* The timestamp links to the post, as on X: the keyboard path to it. */}
+        <Link href={href}>
+          <Timestamp iso={p.createdAt} />
+        </Link>
       </header>
       <p>{p.text}</p>
       {p.media.map((m) => (
@@ -82,7 +90,7 @@ function ActionBar() {
 
 export function IconSprite() {
   return (
-    <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+    <svg width="0" height="0" className="icon-sprite" aria-hidden="true">
       {['reply', 'repost', 'like', 'views', 'bookmark', 'share', 'more'].map((i, n) => (
         <symbol key={i} id={`i-${i}`} viewBox="0 0 24 24">
           <circle cx="12" cy="12" r={4 + n} fill="none" stroke="currentColor" />

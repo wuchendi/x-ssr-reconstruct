@@ -57,7 +57,8 @@ export default defineConfig(({ isSsrBuild }) => ({
                 },
                 {
                   debugName: 'startup-app',
-                  name: (id: string, ctx: Ctx) => (startupNonEntry(id, ctx) && !/\.css$/.test(id) ? 'startup-app' : null),
+                  name: (id: string, ctx: Ctx) =>
+                    startupNonEntry(id, ctx) && !/\.css$/.test(id) ? 'startup-app' : null,
                   test: /[\\/]src[\\/]/,
                   priority: 10,
                 },

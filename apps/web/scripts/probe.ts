@@ -11,8 +11,16 @@ let body = ''
 for await (const chunk of res.body!) {
   const s = dec.decode(chunk, { stream: true })
   body += s
-  const tags = [...new Set(s.match(/<(title|article|script type="application\/json" data-rr="[^"]+"|template|div hidden id="S:\d+"|\/html)/g) ?? [])]
+  const tags = [
+    ...new Set(
+      s.match(
+        /<(title|article|script type="application\/json" data-rr="[^"]+"|template|div hidden id="S:\d+"|\/html)/g,
+      ) ?? [],
+    ),
+  ]
   console.log(`${ms()} +${String(chunk.length).padStart(6)}B  ${tags.join(' ').slice(0, 160)}`)
 }
-console.log(`${ms()} done total=${body.length}B scripts=${(body.match(/<script/g) ?? []).length} posts=${(body.match(/<article/g) ?? []).length} jsonld=${body.includes('ld+json')} rr=${(body.match(/data-rr=/g) ?? []).length}`)
+console.log(
+  `${ms()} done total=${body.length}B scripts=${(body.match(/<script/g) ?? []).length} posts=${(body.match(/<article/g) ?? []).length} jsonld=${body.includes('ld+json')} rr=${(body.match(/data-rr=/g) ?? []).length}`,
+)
 if (full) console.log(body)

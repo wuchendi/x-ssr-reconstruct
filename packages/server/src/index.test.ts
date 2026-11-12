@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createServer, parseCookies, type SsrServer, withTimeout } from './index.ts'
+import type { SsrServer } from './index.ts'
+import { createServer, parseCookies, withTimeout } from './index.ts'
 
 // A minimal production build: Vite manifest, one asset, and an SSR entry.
 let root: string
@@ -35,6 +36,7 @@ beforeAll(async () => {
     logLevel: 'silent',
   })
   // Routes must be added before the first request makes the instance ready.
+  server.app.get('/nonce', (req) => server.nonce(req) ?? '')
   server.app.get('/html', (_req, reply) =>
     server.sendHtml(reply, { status: 404, body: Readable.from(['<p>gone</p>']), timing: { upstream: 1.25, shell: 3 } }),
   )
@@ -103,5 +105,25 @@ describe('utilities', () => {
   it('rejects when the promise outlives the timeout', async () => {
     await expect(withTimeout(new Promise(() => {}), 10, 'slow')).rejects.toThrow('slow timed out')
     await expect(withTimeout(Promise.resolve(1), 10, 'fast')).resolves.toBe(1)
+  })
+})
+
+describe('content security policy (production)', () => {
+  it('sends a nonce-based CSP with a fresh nonce per request', async () => {
+    let seen: string[] = []
+    const res1 = await server.app.inject('/metrics')
+    const res2 = await server.app.inject('/metrics')
+    seen = [res1, res2].map((r) => String(r.headers['content-security-policy']))
+    for (const csp of seen) {
+      expect(csp).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]{20,}'/)
+      expect(csp).toContain("object-src 'none'")
+      expect(csp).toContain("frame-ancestors 'none'")
+    }
+    expect(seen[0]).not.toBe(seen[1])
+  })
+
+  it('exposes the request nonce that the CSP header carries', async () => {
+    const res = await server.app.inject('/nonce')
+    expect(String(res.headers['content-security-policy'])).toContain(`'nonce-${res.body}'`)
   })
 })

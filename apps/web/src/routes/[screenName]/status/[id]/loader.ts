@@ -39,7 +39,14 @@ export default {
   body: { conversation: { query: ConversationQuery, variables: (p) => ({ id: p.id }) } },
   head: (data: PostQuery$data, p) => {
     const post = data.post
-    if (!post) return { status: 404, title: 'Post not found / X-ish', description: '', canonical: `/${p.screenName}/status/${p.id}`, ogType: 'article' }
+    if (!post)
+      return {
+        status: 404,
+        title: 'Post not found / X-ish',
+        description: '',
+        canonical: `/${p.screenName}/status/${p.id}`,
+        ogType: 'article',
+      }
     return {
       status: 200,
       title: `${post.author.name} on X-ish: "${post.text.slice(0, 60)}"`,

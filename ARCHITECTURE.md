@@ -96,7 +96,7 @@ layout.
   arrived. X saw 1–9% of renders time out against a ~25 ms upstream. Their fix
   was more workers (lower event-loop utilisation per worker), not longer
   timeouts. `withTimeout()` in `@x-ssr/server` carries the note.
-- **[found]** When an upstream times out *after* the shell has been sent,
+- **[found]** When an upstream times out _after_ the shell has been sent,
   React marks that boundary as client-rendered (error #419). The browser then
   fetches the data itself through the replay network's API fallback. The
   verification run hit this by accident (5 s upstream, 1 s timeout), and the
@@ -131,11 +131,11 @@ layout.
 
 `src/entry-server.tsx`
 
-| Audience | React callback | What is sent |
-|---|---|---|
-| person | `onShellReady` | Shell first, then each Suspense boundary plus its GraphQL responses as they resolve |
-| verified crawler | `onAllReady` | One finished document: JSON-LD, no client bundle, no router state, no data scripts, no skeletons or sign-in buttons |
-| link-preview bot | `onAllReady` | `<head>` only. `loadRoute(..., { headOnly: true })` never sends the timeline/conversation queries |
+| Audience         | React callback | What is sent                                                                                                        |
+| ---------------- | -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| person           | `onShellReady` | Shell first, then each Suspense boundary plus its GraphQL responses as they resolve                                 |
+| verified crawler | `onAllReady`   | One finished document: JSON-LD, no client bundle, no router state, no data scripts, no skeletons or sign-in buttons |
+| link-preview bot | `onAllReady`   | `<head>` only. `loadRoute(..., { headOnly: true })` never sends the timeline/conversation queries                   |
 
 - **[found] `onAllReady` alone does not give an "every boundary resolved in
   place" document.** React 19 still **outlines** a completed boundary
@@ -164,7 +164,7 @@ layout.
 ### Server
 
 - **[post]** Each GraphQL response the server received goes into the page
-  **once, as JSON text**. The normalized Relay store is *not* serialized: those
+  **once, as JSON text**. The normalized Relay store is _not_ serialized: those
   records were 4–5× the size of the responses.
 - One Relay `Environment` per request (`isServer: true`). Its network
   `fetchFn` hands the raw response text to the injector.
@@ -182,7 +182,7 @@ layout.
     `<!DOCTYPE html>`.
   - **Later flushes:** data first, then the boundary, so the response is in the
     DOM before React reveals and hydrates the boundary that needs it.
-- **[found]** When the shell *is* the whole document (no pending boundaries,
+- **[found]** When the shell _is_ the whole document (no pending boundaries,
   e.g. a 404 profile), the first flush already ends with `</body></html>`.
   Appending data there put scripts after `</html>`, so data is spliced in
   before `</body></html>` instead.
@@ -266,11 +266,11 @@ or dialog opened right after still finds them.
   1. `includeDependenciesRecursively` defaults to `true`. The "names" group
      dragged in all its imports, including React and Relay (285 KB instead of
      0.9 KB).
-  2. **Chunk cycle.** The route table imported the loaders (app code) *and*
+  2. **Chunk cycle.** The route table imported the loaders (app code) _and_
      named the lazy pages. That put a static `startup-app ⇄ startup-names`
      cycle in the bundle, which crashed at runtime
      (`Cannot read properties of undefined (reading 'default')`). The module
-     that names lazy chunks must contain *only* dynamic imports
+     that names lazy chunks must contain _only_ dynamic imports
      (`router/page-chunks.ts`).
   3. **Entry modules must stay out of shared groups.** Captured into
      `startup-app`, both entries' top-level code ran in every entry. Both
@@ -283,12 +283,12 @@ These were run against the production build.
 
 ### `scripts/probe.ts`: chunk arrival timing
 
-| Request | Result |
-|---|---|
-| person `/ada` | 193 ms: shell (3.8 KB) plus the header query response. 641 ms: timeline response, then the boundary (27.5 KB) |
-| crawler `/ada` | 644 ms: one 22 KB document, 1 script (JSON-LD), 20 posts inline |
-| crawler `/nobody` | HTTP 404, complete document |
-| preview `/ada/status/1001` | 1.3 KB, `<head>` only, ~200 ms (the 650 ms conversation query is skipped) |
+| Request                    | Result                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| person `/ada`              | 193 ms: shell (3.8 KB) plus the header query response. 641 ms: timeline response, then the boundary (27.5 KB) |
+| crawler `/ada`             | 644 ms: one 22 KB document, 1 script (JSON-LD), 20 posts inline                                               |
+| crawler `/nobody`          | HTTP 404, complete document                                                                                   |
+| preview `/ada/status/1001` | 1.3 KB, `<head>` only, ~200 ms (the 650 ms conversation query is skipped)                                     |
 
 ### `scripts/browser-check.mjs`: Chromium (Playwright 1.65) in a sibling container
 
@@ -396,7 +396,46 @@ counters, which shows that requests are spread across worker threads.
   - Editing `routes/_index/page.tsx` updates the heading through HMR without
     a full reload.
 
-## 13. Not reconstructed
+## 13. Hardening: lint, CSP, persisted queries, error handling
+
+- **[post]** X turned its conventions into lint rules, including an
+  "anti-slop" plugin. Here, Biome plus two GritQL plugins
+  (`biome-plugins/`): no chained type assertions, and no conditional spreads
+  of an empty object. The post's third example, parameters typed as
+  `unknown`, is left out on purpose. `unknown` is the safe type for values
+  that get narrowed, such as `catch` callbacks.
+- **[found]** Biome flagged a conditional hook:
+  `primary ? usePreloadedQuery(...) : null` in the route head. It does not
+  crash today. A head with no primary query reads only context, and context
+  reads take no slot in React's hook list, so both "more hooks" and "fewer
+  hooks" go undetected. But going from a profile back to `/` silently drops
+  `usePreloadedQuery`'s effect cleanup, and any hook added to that component
+  later would crash. The fix renders a different component per case. Browser
+  check F1 navigates `/` → `/ada` → back.
+- **[found]** Client navigation had no failure path. If the next route's
+  chunk failed to load, the click silently did nothing. It now falls back to
+  a full page load.
+- **[inferred]** Preloads: `PreloadCache` keeps at most 20 entries for 30 s
+  and disposes the query refs it drops. A navigation takes ownership of its
+  entry, and once the new route commits, the previous route's refs are
+  released.
+- **[inferred]** CSP: `@x-ssr/server` issues a nonce per request (production)
+  and sends `script-src 'self' 'nonce-…'` with no `'unsafe-inline'`. The
+  nonce goes to `renderToPipeableStream({ nonce })` for React's `$RC`
+  scripts, to the stream injector for `__rr.p()`, and to the document's two
+  inline scripts. The browser reads it back from `script.nonce`, because the
+  attribute is hidden after parsing. The one inline `style` attribute (the
+  icon sprite) became a class.
+- **[inferred]** Persisted queries: relay-compiler's local persistence
+  (`persistConfig`, SHA-256) writes `src/__generated__/persisted-queries.json`.
+  Artifacts carry `id` and `text: null`. The server resolves ids for SSR and
+  for `/i/api/graphql`, which rejects query text. relay-compiler requires the
+  file to exist before compiling, so `codegen` seeds it.
+- **[found]** Switching to persisted queries broke the browser checks' request
+  logger, which parsed the operation name out of `query`. Requests now carry
+  `operationName` (the standard field; the server ignores it).
+
+## 14. Not reconstructed
 
 - The Rust card-image service (record-and-replay plus pixel-diff harnesses).
   The prototype serves a placeholder.
@@ -406,7 +445,7 @@ counters, which shows that requests are spread across worker threads.
   with a shared React).
 - The real edge: IP verification, the feature switch, and per-country rollout.
 - Field metrics (perftown / Core Web Vitals) and Lighthouse CI.
-- Disposal of preloaded query refs, Relay GC tuning, and error boundaries.
+- Relay GC tuning.
 
 ## Run
 

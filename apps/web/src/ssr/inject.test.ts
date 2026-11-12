@@ -3,8 +3,8 @@ import { ResponseInjector } from './inject.ts'
 
 // Drive the injector the way React's Fizz writer does: write() any number of
 // times, then flush() at the end of each flush cycle.
-function run(steps: Array<{ write?: string; data?: [string, string]; flush?: true }>): string {
-  const inj = new ResponseInjector()
+function run(steps: Array<{ write?: string; data?: [string, string]; flush?: true }>, nonce?: string): string {
+  const inj = new ResponseInjector(nonce)
   const out: Buffer[] = []
   inj.on('data', (c: Buffer) => out.push(c))
   for (const s of steps) {
@@ -61,7 +61,17 @@ describe('ResponseInjector', () => {
   })
 
   it('escapes the key attribute', () => {
-    const html = run([{ write: '<body>', flush: true }, { data: ['Q:{"s":"a\\"b<"}', '{}'] }, { write: 'x', flush: true }])
+    const html = run([
+      { write: '<body>', flush: true },
+      { data: ['Q:{"s":"a\\"b<"}', '{}'] },
+      { write: 'x', flush: true },
+    ])
     expect(html).toContain('data-rr="Q:{&quot;s&quot;:&quot;a\\&quot;b&lt;&quot;}"')
+  })
+
+  it('puts the CSP nonce on the executable script, not on the JSON data block', () => {
+    const html = run([{ write: '<body>', flush: true }, { data: ['A:{}', '{}'] }, { write: 'x', flush: true }], 'n0nce')
+    expect(html).toContain('<script nonce="n0nce">__rr.p()</script>')
+    expect(html).toContain('<script type="application/json" data-rr="A:{}">')
   })
 })

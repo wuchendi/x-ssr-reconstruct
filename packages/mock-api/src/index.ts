@@ -6,7 +6,13 @@ import { buildSchema, graphql } from 'graphql'
 
 const schema = buildSchema(readFileSync(new URL('../schema.graphql', import.meta.url), 'utf8'))
 
-const LATENCY_MS = { user: 60, post: 60, posts: 450, replies: Number(process.env.REPLIES_LATENCY_MS ?? 650), homeTimeline: 300 }
+const LATENCY_MS = {
+  user: 60,
+  post: 60,
+  posts: 450,
+  replies: Number(process.env.REPLIES_LATENCY_MS ?? 650),
+  homeTimeline: 300,
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 type UserRow = { id: string; screenName: string; name: string; bio: string; followers: number }
@@ -60,7 +66,10 @@ function postNode(p: PostRow): Record<string, unknown> {
     media: p.photo ? [{ url: p.photo, alt: `Photo attached to post ${p.id}` }] : [],
     replies: async ({ first }: { first: number }) => {
       await sleep(LATENCY_MS.replies)
-      return posts.filter((r) => r.replyTo === p.id).slice(0, first).map(postNode)
+      return posts
+        .filter((r) => r.replyTo === p.id)
+        .slice(0, first)
+        .map(postNode)
     },
   }
 }
@@ -78,7 +87,10 @@ const root = {
   },
   homeTimeline: async ({ first }: { first: number }) => {
     await sleep(LATENCY_MS.homeTimeline)
-    return posts.filter((p) => !p.replyTo).slice(0, first).map(postNode)
+    return posts
+      .filter((p) => !p.replyTo)
+      .slice(0, first)
+      .map(postNode)
   },
 }
 

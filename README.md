@@ -94,12 +94,14 @@ guide warns that temporary package paths can break it.
 pnpm dev    # turbo: Relay codegen, then both apps behind nsl
 ```
 
-| App | URL |
-|---|---|
-| web (`@x-ssr/web`) | http://x-ssr.localhost:3355 |
+| App                                    | URL                                |
+| -------------------------------------- | ---------------------------------- |
+| web (`@x-ssr/web`)                     | http://x-ssr.localhost:3355        |
 | legacy reference (`@x-ssr/legacy-ssr`) | http://x-ssr-legacy.localhost:3355 |
 
-nsl picks a free port for each app and passes it in as `PORT`. `nsl get x-ssr`
+nsl picks a free port for each app and passes it in as `PORT`, with
+`HOST=127.0.0.1`, so the dev servers are reachable only through the proxy.
+Without `HOST` (CI, containers) they listen on all interfaces. `nsl get x-ssr`
 prints the URL for scripts. For example, to run SEO parity against the dev
 servers:
 
@@ -124,19 +126,20 @@ bundles to Vite in middleware mode, behind the same Fastify server:
 
 ## Turbo tasks
 
-| Task | Depends on | Outputs |
-|---|---|---|
-| `codegen` | — | `src/**/__generated__/**` (Relay artifacts, not committed) |
-| `build` | `codegen`, upstream `build` | `dist/**` |
-| `typecheck` | `codegen`, upstream `build` | — |
-| `test` | `build` (the bundle test reads `dist/`) | — |
-| `dev` | `codegen` | — (persistent, not cached) |
+| Task        | Depends on                              | Outputs                                                    |
+| ----------- | --------------------------------------- | ---------------------------------------------------------- |
+| `codegen`   | —                                       | `src/**/__generated__/**` (Relay artifacts, not committed) |
+| `build`     | `codegen`, upstream `build`             | `dist/**`                                                  |
+| `typecheck` | `codegen`, upstream `build`             | —                                                          |
+| `test`      | `build` (the bundle test reads `dist/`) | —                                                          |
+| `dev`       | `codegen`                               | — (persistent, not cached)                                 |
 
 ```bash
 pnpm turbo run build typecheck test       # what CI runs; cached locally in .turbo/
 pnpm typecheck                            # or: pnpm build / pnpm test
 pnpm turbo run test --filter @x-ssr/url-cleanup
 pnpm clean                                # back to a fresh checkout; then pnpm install
+pnpm lint                                 # Biome: lint + format check (pnpm format to apply fixes)
 ```
 
 The unit tests cover:
@@ -147,12 +150,43 @@ The unit tests cover:
 - route matching;
 - the SEO parity extractor;
 - the startup chunk graph;
-- the server assembly: manifest-based assets, security headers, metrics, HTML streaming.
+- the server assembly: manifest-based assets, security headers, metrics, HTML streaming;
+- the nonce-based CSP header;
+- persisted queries: lookup and request validation;
+- the preload cache: cap, expiry, and disposal of query refs.
 
 The bugs found while building this project each have a regression test.
 
-CI (`.github/workflows/ci.yml`) runs the turbo tasks, then SEO parity and the
-browser checks against running servers, on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs Biome (`biome ci`), the turbo tasks,
+then SEO parity and the browser checks against running servers, on every push
+and pull request.
+
+## Lint and format
+
+[Biome](https://biomejs.dev) lints and formats the whole repo (`biome.json`):
+recommended rules plus the React domain, `import type`, and floating
+promises. `biome-plugins/` adds two GritQL rules modelled on the post's
+"anti-slop" lint plugin:
+
+- no chained type assertions (`x as unknown as T`);
+- no conditional spreads of an empty object (`...(cond ? { a } : {})`).
+
+Remaining `biome-ignore` comments say why each exception is intentional.
+
+## Security
+
+- **CSP (production):** each response gets a fresh nonce and a strict
+  policy: `script-src 'self' 'nonce-…'`, `style-src 'self'`,
+  `object-src 'none'` and `frame-ancestors 'none'`. Every inline script
+  carries the nonce: the replay registry, the loader, the streamed data
+  scripts, and React's own streaming scripts. Dev runs without CSP, because
+  Vite's HMR injects styles inline.
+- **Persisted queries:** relay-compiler writes `id → query text` at codegen
+  and leaves the text out of the client bundle. `/i/api/graphql` accepts only
+  `{ id, variables }` and answers 400 to query text or unknown ids.
+- **Errors:** page requests that fail before the first byte get an HTML 500
+  page; API calls get JSON. A client-side error boundary keeps the document
+  (and the top bar) alive.
 
 ## Seeing each audience
 
@@ -189,7 +223,7 @@ It exits with 1 on any difference.
 
 ## Browser checks
 
-`apps/web/scripts/browser-check.mjs` runs 16 checks in real Chromium:
+`apps/web/scripts/browser-check.mjs` runs 20 checks in real Chromium:
 
 - hydration without errors;
 - no GraphQL request at load;
@@ -197,7 +231,9 @@ It exits with 1 on any difference.
 - intent preloading;
 - client-side navigation;
 - the shell hydrating before the document finishes under Slow 4G;
-- signed-in Home.
+- signed-in Home;
+- no CSP violations (initial load, streamed boundaries, signed-in app);
+- navigating between routes with and without a primary query, including back.
 
 It needs Playwright with a matching browser:
 `pnpm --filter @x-ssr/web exec playwright install chromium`, or the
@@ -211,12 +247,12 @@ BASE=http://127.0.0.1:3300 pnpm e2e:browser
 
 ## Knobs
 
-| Variable | Default | Effect |
-|---|---|---|
-| `PORT` | `3000` (`3301` for legacy) | Listen port |
-| `REPLIES_LATENCY_MS` | `650` | Mock latency of the conversation (replies) query |
-| `UPSTREAM_TIMEOUT_MS` | `1000` | Timeout for guest token, flags and GraphQL upstream calls |
-| `LOG_LEVEL` | `info` | Fastify log level |
+| Variable              | Default                    | Effect                                                    |
+| --------------------- | -------------------------- | --------------------------------------------------------- |
+| `PORT`                | `3000` (`3301` for legacy) | Listen port                                               |
+| `REPLIES_LATENCY_MS`  | `650`                      | Mock latency of the conversation (replies) query          |
+| `UPSTREAM_TIMEOUT_MS` | `1000`                     | Timeout for guest token, flags and GraphQL upstream calls |
+| `LOG_LEVEL`           | `info`                     | Fastify log level                                         |
 
 ## Not reconstructed
 
@@ -226,7 +262,7 @@ BASE=http://127.0.0.1:3300 pnpm e2e:browser
 - The real edge: IP verification, feature switch, per-country rollout.
 - Field metrics and Lighthouse CI.
 
-See ARCHITECTURE.md §13.
+See ARCHITECTURE.md §14.
 
 ## License
 

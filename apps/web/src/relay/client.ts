@@ -1,4 +1,5 @@
-import { Environment, Network, Observable, RecordSource, Store, type GraphQLResponse } from 'relay-runtime'
+import type { GraphQLResponse } from 'relay-runtime'
+import { Environment, Network, Observable, RecordSource, Store } from 'relay-runtime'
 import { requestKey } from './key.ts'
 
 // Registry installed by an inline <script> in <head> (see Document). The
@@ -28,11 +29,17 @@ function take(key: string): GraphQLResponse | undefined {
   return JSON.parse(text)
 }
 
-async function fetchFromApi(query: string, variables: Record<string, unknown>): Promise<GraphQLResponse> {
+// Persisted queries: only the operation id is sent, never query text. The
+// operation name is for logs and tooling; the server ignores it.
+async function fetchFromApi(
+  id: string,
+  operationName: string,
+  variables: Record<string, unknown>,
+): Promise<GraphQLResponse> {
   const res = await fetch('/i/api/graphql', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
+    body: JSON.stringify({ id, operationName, variables }),
   })
   return res.json()
 }
@@ -52,11 +59,15 @@ export function createClientEnvironment() {
   const network = Network.create((params, variables) =>
     Observable.create<GraphQLResponse>((sink) => {
       const key = requestKey(params, variables)
-      const fromNetwork = () =>
-        fetchFromApi(params.text!, variables).then(
-          (r) => (sink.next(r), sink.complete()),
+      const fromNetwork = () => {
+        fetchFromApi(params.id!, params.name, variables).then(
+          (r) => {
+            sink.next(r)
+            sink.complete()
+          },
           (e) => sink.error(e),
         )
+      }
       const tryReplay = () => {
         const replayed = take(key)
         if (replayed === undefined) return false

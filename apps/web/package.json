@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "codegen": "relay-compiler",
+    "codegen": "mkdir -p src/__generated__ && ([ -f src/__generated__/persisted-queries.json ] || echo '{}' > src/__generated__/persisted-queries.json) && relay-compiler",
     "build": "vite build && vite build --ssr src/entry-server.tsx --outDir dist/server && node scripts/ngroutes.ts > dist/ngroutes.json && node scripts/precompress.ts",
     "typecheck": "tsc -p .",
     "test": "vitest run",

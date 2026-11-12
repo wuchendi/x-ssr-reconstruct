@@ -1,17 +1,7 @@
 {
   "extends": "@x-ssr/tsconfig/react.json",
   "compilerOptions": {
-    "types": [
-      "node",
-      "vite/client"
-    ]
+    "types": ["node", "vite/client"]
   },
-  "include": [
-    "src",
-    "server",
-    "scripts",
-    "vite.config.ts",
-    "babel-plugin-relay.d.ts",
-    "tests"
-  ]
+  "include": ["src", "server", "scripts", "vite.config.ts", "babel-plugin-relay.d.ts", "tests"]
 }

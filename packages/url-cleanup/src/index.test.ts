@@ -25,9 +25,12 @@ describe('cleanPath', () => {
   })
 
   // Regression: the 301 used to target the decoded path unchecked.
-  it.each(['//evil.com.', '/%2Fevil.com.', '/\\evil.com.', '/%5Cevil.com.'])('does not redirect off-origin: %s', (input) => {
-    expect(cleanPath(input)).toBeNull()
-  })
+  it.each(['//evil.com.', '/%2Fevil.com.', '/\\evil.com.', '/%5Cevil.com.'])(
+    'does not redirect off-origin: %s',
+    (input) => {
+      expect(cleanPath(input)).toBeNull()
+    },
+  )
 
   it('re-encodes decoded characters for the Location header', () => {
     expect(cleanPath('/%C3%A4da.')).toBe('/%C3%A4da')

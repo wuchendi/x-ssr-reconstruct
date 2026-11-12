@@ -17,6 +17,10 @@ const dirs: string[] = []
 })(base)
 
 const toPattern = (dir: string) =>
-  `/${dir.split('/').filter((s) => s && s !== '_index').map((s) => (s.startsWith('[') ? `:${s.slice(1, -1)}` : s)).join('/')}`
+  `/${dir
+    .split('/')
+    .filter((s) => s && s !== '_index')
+    .map((s) => (s.startsWith('[') ? `:${s.slice(1, -1)}` : s))
+    .join('/')}`
 
 console.log(JSON.stringify({ generatedAt: new Date().toISOString(), routes: dirs.map(toPattern).sort() }, null, 2))

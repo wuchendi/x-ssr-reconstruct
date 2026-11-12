@@ -20,7 +20,9 @@ export async function developmentMode(app: FastifyInstance, config: ServerConfig
   // What Vite would inject into index.html (its client + the React Refresh
   // preamble), taken from Vite itself so plugin upgrades keep working.
   const injected = await vite.transformIndexHtml('/', '<html><head></head><body></body></html>')
-  const imports = [...injected.matchAll(/<script type="module" src="([^"]+)"><\/script>/g)].map((m) => `import ${JSON.stringify(m[1])};`)
+  const imports = [...injected.matchAll(/<script type="module" src="([^"]+)"><\/script>/g)].map(
+    (m) => `import ${JSON.stringify(m[1])};`,
+  )
   const inline = [...injected.matchAll(/<script type="module">([\s\S]*?)<\/script>/g)].map((m) => m[1])
 
   // The page's loader script points at this tiny module, which installs the
@@ -39,6 +41,10 @@ export async function developmentMode(app: FastifyInstance, config: ServerConfig
     fixStacktrace: (err) => vite.ssrFixStacktrace(err),
     // A <link> request makes Vite serve the CSS itself, so first paint is
     // styled in dev too; the JS import of the same file then handles HMR.
-    assets: (entryName) => ({ entry: `/__dev/entry/${entryName}.js`, preloads: [], css: (config.devCss ?? []).map((p) => `/${p}`) }),
+    assets: (entryName) => ({
+      entry: `/__dev/entry/${entryName}.js`,
+      preloads: [],
+      css: (config.devCss ?? []).map((p) => `/${p}`),
+    }),
   }
 }

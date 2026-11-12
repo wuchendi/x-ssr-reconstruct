@@ -20,7 +20,11 @@ export function patternToRegex(pattern: string): { regex: RegExp; paramNames: st
   const body = pattern
     .split('/')
     .filter(Boolean)
-    .map((s) => (s.startsWith(':') ? (paramNames.push(s.slice(1)), '([^/]+)') : s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    .map((s) => {
+      if (!s.startsWith(':')) return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      paramNames.push(s.slice(1))
+      return '([^/]+)'
+    })
     .join('/')
   return { regex: new RegExp(`^/${body}/?$`, 'i'), paramNames }
 }

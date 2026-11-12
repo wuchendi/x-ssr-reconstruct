@@ -18,6 +18,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Lint and format (Biome)
+        run: pnpm biome ci .
+
       - name: Build, typecheck, unit tests
         run: pnpm turbo run build typecheck test
 

@@ -33,7 +33,13 @@ export default {
     const u = data.user
     if (!u) {
       // A real 404, not a 200 page that says "not found".
-      return { status: 404, title: 'Account not found / X-ish', description: "This account doesn't exist.", canonical: `/${p.screenName}`, ogType: 'profile' }
+      return {
+        status: 404,
+        title: 'Account not found / X-ish',
+        description: "This account doesn't exist.",
+        canonical: `/${p.screenName}`,
+        ogType: 'profile',
+      }
     }
     return {
       status: 200,

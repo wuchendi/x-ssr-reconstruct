@@ -1,0 +1,8 @@
+// Anti-slop: `...(cond ? { a } : {})` spreads an empty object to express
+// "maybe add this key". Assign the key conditionally or pass undefined.
+or {
+  `...($cond ? $value : {})`,
+  `...($cond ? {} : $value)`
+} as $spread where {
+  register_diagnostic(span=$spread, message="Conditional spread of an empty object. Set the property conditionally instead.")
+}

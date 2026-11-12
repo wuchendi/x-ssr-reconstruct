@@ -3,9 +3,9 @@ import { usePreloadedQuery } from 'react-relay'
 import { PostCard } from '../../../../components/PostCard.tsx'
 import { PostSkeletons } from '../../../../components/Skeleton.tsx'
 import type { PageProps } from '../../../../router/types.ts'
-import { ConversationQuery, PostQuery } from './loader.ts'
-import type { PostQuery as PostOp } from './__generated__/PostQuery.graphql.ts'
 import type { ConversationQuery as ConvOp } from './__generated__/ConversationQuery.graphql.ts'
+import type { PostQuery as PostOp } from './__generated__/PostQuery.graphql.ts'
+import { ConversationQuery, PostQuery } from './loader.ts'
 
 export default function PostPage({ refs }: PageProps) {
   const { post } = usePreloadedQuery<PostOp>(PostQuery, refs.primary as never)
@@ -22,5 +22,11 @@ export default function PostPage({ refs }: PageProps) {
 
 function Conversation({ queryRef }: { queryRef: PageProps['refs'][string] }) {
   const { post } = usePreloadedQuery<ConvOp>(ConversationQuery, queryRef as never)
-  return <>{post?.replies.map((r) => <PostCard key={r.id} post={r} />)}</>
+  return (
+    <>
+      {post?.replies.map((r) => (
+        <PostCard key={r.id} post={r} />
+      ))}
+    </>
+  )
 }
