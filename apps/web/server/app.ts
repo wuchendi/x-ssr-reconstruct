@@ -51,7 +51,7 @@ export async function create() {
     if (status >= 500) req.log.error({ err }, 'request failed')
     if (req.method !== 'GET')
       return reply.code(status).send({ error: status >= 500 ? 'Internal Server Error' : err.message })
-    return reply.code(status).type('text/html; charset=utf-8').send(ERROR_PAGE)
+    return reply.code(status).type('text/html; charset=utf-8').header('cache-control', 'no-store').send(ERROR_PAGE)
   })
 
   // Test hook for scripts/watt-stall-check.mjs: blocks this worker's event

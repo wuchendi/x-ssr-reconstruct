@@ -102,7 +102,10 @@ export async function createServer(config: ServerConfig): Promise<SsrServer> {
       counters[name] = (counters[name] ?? 0) + 1
     },
     sendHtml(reply, { status, body, timing }) {
-      reply.code(status).type('text/html; charset=utf-8')
+      // Per-visitor HTML (a guest-token Set-Cookie, signed-in content): never
+      // stored by a shared cache and served to someone else. Hashed assets
+      // under /assets are the cacheable part (immutable, 1 year).
+      reply.code(status).type('text/html; charset=utf-8').header('cache-control', 'private, no-store')
       if (timing) {
         reply.header(
           'server-timing',

@@ -93,6 +93,9 @@ describe('assembly', () => {
     expect(res.statusCode).toBe(404)
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8')
     expect(res.headers['server-timing']).toBe('upstream;dur=1.3, shell;dur=3.0')
+    // Per-visitor HTML (guest-token Set-Cookie, signed-in content) must never
+    // be stored by a shared cache and served to someone else.
+    expect(res.headers['cache-control']).toBe('private, no-store')
     expect(res.body).toBe('<p>gone</p>')
   })
 })
