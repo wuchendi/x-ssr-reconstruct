@@ -17,7 +17,9 @@ export type FetchGraphQL = (
 //
 // Every response the server receives is handed to `onResponse` as raw JSON
 // text. It goes into the page once, verbatim; we do NOT serialize the Relay
-// store (normalized records were 4-5x the size of the responses).
+// store: its format is relay-runtime internals (server and browser would need
+// the same version) and it cannot stream per boundary. X reports normalized
+// records at 4-5x the responses; with this mock data it is ~1.2x.
 // onPartial: a response kept despite errors (partial data); worth logging.
 export function createServerEnvironment(
   fetchGraphQL: FetchGraphQL,

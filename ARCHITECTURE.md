@@ -164,8 +164,16 @@ layout.
 ### Server
 
 - **[post]** Each GraphQL response the server received goes into the page
-  **once, as JSON text**. The normalized Relay store is _not_ serialized: those
-  records were 4–5× the size of the responses.
+  **once, as JSON text**. The normalized Relay store is _not_ serialized: at
+  X those records were 4–5× the size of the responses.
+- Measured here (same queries, raw responses vs. the serialized store after
+  they settle): `/ada` 6,270 vs. 7,360 bytes (1.17×), `/ada/status/1001`
+  5,210 vs. 6,305 bytes (1.21×); gzipped the gap widens to ~1.6×. The mock
+  posts are long text, so per-record overhead (`__id`, `__typename`, `__ref`)
+  is a small share. Restoring a serialized store was faster than replaying
+  (52–72 µs vs. 322–364 µs). Size is not the main reason here: the store
+  format is relay-runtime internals, so server and browser would have to run
+  the same version, and a whole store cannot stream per boundary.
 - One Relay `Environment` per request (`isServer: true`). Its network
   `fetchFn` hands the raw response text to the injector.
 
